@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f8fa">
+  <meta name="description" content="VibeMetrics — рабочий портал аналитики на ClickHouse для всех проектов OpenMVP.">
+  <link rel="icon" href="./assets/mark.svg" type="image/svg+xml">
+  <title>VibeMetrics — рабочий портал аналитики</title>
+  <link rel="stylesheet" href="./assets/style.css">
+  <script type="module" src="./assets/main.js?v=period-1"></script>
+</head>
+<body>
+  <a class="skip" href="#content">К аналитике</a>
+  <header class="mast">
+    <a class="brand" href="#overview" aria-label="VibeMetrics — главная"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 16v3m4-7v7m4-10v10m4-14v14" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/><path d="m5 11 4-4 4 1 4-4" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Vibe<span class="brand-suffix">Metrics</span></a>
+    <nav class="top-nav" aria-label="Главное меню"><a href="#overview" data-top="overview">Рабочий стол</a><a href="#projects" data-top="projects">OpenMVP Stat</a><a href="#mcp" data-top="mcp">MCP</a></nav>
+    <div class="mast-actions"><span class="build-label">SELF-HOSTED / CLICKHOUSE</span><a class="button" href="/app/">Войти</a><a class="button primary bundle" href="./downloads/vibemetrics-self-hosted.zip" download><span data-icon="download"></span><span>Скачать</span></a></div>
+  </header>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="side-body">
+        <div class="workspace"><span data-icon="layers"></span><div><strong>OpenMVP Network</strong><small>Сеть проектов</small></div></div>
+        <p class="nav-label">АНАЛИТИКА</p>
+        <nav class="side-nav" aria-label="Аналитика">
+          <a href="#overview" data-view="overview"><span data-icon="grid"></span>Обзор</a>
+          <a href="#projects" data-view="projects"><span data-icon="box"></span>Проекты <span class="nav-count" id="nav-count"></span></a>
+          <a href="#events" data-view="events"><span data-icon="pulse"></span>События</a>
+          <a href="#attribution" data-view="attribution"><span data-icon="route"></span>Атрибуция</a>
+          <a href="#features" data-view="features"><span data-icon="layers"></span>Поведение</a>
+          <a href="#reports" data-view="reports"><span data-icon="file"></span>Отчёты</a>
+        </nav>
+        <p class="nav-label">ИНФРАСТРУКТУРА</p>
+        <nav class="side-nav" aria-label="Инфраструктура">
+          <a href="#sources" data-view="sources"><span data-icon="database"></span>Источники</a>
+          <a href="#exports" data-view="exports"><span data-icon="download"></span>Выгрузки и MCP</a>
+        </nav>
+        <div class="engine"><div><span data-icon="database"></span><strong>ClickHouse</strong></div><small id="engine-status">Демонстрационный контур</small><a href="#sources" data-view="sources">Как развернуть <span aria-hidden="true">↗</span></a></div>
+      </div>
+    </aside>
+    <main id="content" tabindex="-1">
+      <div class="frame">
+        <div class="breadcrumbs"><span>VibeMetrics</span><span aria-hidden="true">/</span><strong id="crumb">Обзор</strong></div>
+        <div id="view"></div>
+        <footer><span>VibeMetrics / OpenMVP</span><span>ClickHouse · CRM · MCP · <a href="https://db-ip.com" rel="noopener">IP Geolocation by DB-IP</a></span></footer>
+      </div>
+    </main>
+  </div>
+  <dialog id="project-dialog" aria-labelledby="dialog-title">
+    <form id="project-form">
+      <div class="dialog-head"><div><span class="eyebrow">РЕЕСТР ПРОЕКТОВ</span><h2 id="dialog-title">Новый проект</h2></div><button class="button icon-only" type="button" data-action="close" aria-label="Закрыть">×</button></div>
+      <label>Название проекта<input name="name" required maxlength="80" placeholder="Например, Billing Portal"></label>
+      <label>ID проекта<input name="id" required maxlength="48" pattern="[a-z][a-z0-9\-]*" placeholder="billing-portal" title="Латинские строчные буквы, цифры и дефисы. Начните с буквы."></label>
+      <label>Домен сайта<input name="url" type="url" required maxlength="200" placeholder="https://example.com"></label>
+      <label>Категория <span>(необязательно)</span><input name="type" maxlength="60" placeholder="Продуктовая аналитика"></label>
+      <label>Теги <span>(через запятую, до 8)</span><input name="tags" maxlength="400" placeholder="трафик, mvp, тест"></label>
+      <p class="form-error" id="form-error" role="alert"></p>
+      <div class="dialog-actions"><button class="button" type="button" data-action="close">Отмена</button><button class="button primary" type="submit">Добавить</button></div>
+    </form>
+  </dialog>
+  <dialog id="tags-dialog" aria-labelledby="tags-title">
+    <form id="tags-form">
+      <div class="dialog-head"><div><span class="eyebrow">РЕЕСТР ПРОЕКТОВ</span><h2 id="tags-title">Теги проекта</h2></div><button class="button icon-only" type="button" data-action="close" aria-label="Закрыть">×</button></div>
+      <p class="quiet" id="tags-project"></p>
+      <label>Теги <span>(через запятую, до 8)</span><input id="tags-input" maxlength="400" placeholder="трафик, mvp, тест"></label>
+      <p class="form-error" id="tags-error" role="alert"></p>
+      <div class="dialog-actions"><button class="button" type="button" data-action="close">Отмена</button><button class="button primary" type="submit">Сохранить</button></div>
+    </form>
+  </dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

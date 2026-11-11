@@ -1,0 +1,6 @@
+.env
+.git
+**/__pycache__
+selfhost/state/
+downloads/*.zip
+*.pyc

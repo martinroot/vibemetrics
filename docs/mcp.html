@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f6f8fa">
+  <title>VibeMetrics MCP — подключение и документация</title>
+  <link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/style.css">
+  <style>
+    body{background:#f6f8fa;color:#182634;font:14px/1.65 Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+    .doc{max-width:960px;margin:42px auto;padding:0 22px 70px}
+    .doc-head{padding:28px;border:1px solid #d6e7df;border-radius:12px;background:linear-gradient(110deg,#f2f9f4,#e9f2df)}
+    .doc h1{font-size:clamp(30px,5vw,48px);margin:7px 0 12px}
+    .doc h2{font-size:21px;margin:32px 0 10px}
+    .doc p,.doc li{color:#405669}
+    .doc pre{overflow:auto;padding:18px;border-radius:9px;background:#192e33;color:#dceee9;font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace}
+    .doc code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+    .doc a{color:#146653;font-weight:700}
+    .doc-table{width:100%;border-collapse:collapse;background:#fff}
+    .doc-table th,.doc-table td{padding:11px 12px;border:1px solid #dfe6ed;text-align:left}
+    .doc-table th{background:#f1f5f3}
+    .doc-links{display:grid;gap:10px}
+    .doc-link{padding:15px;background:#fff;border:1px solid #dfe6ed;border-radius:9px}
+    .doc-back{display:inline-block;margin-bottom:18px}
+    .note{padding:14px;border-left:3px solid #47866a;background:#edf6f1;border-radius:5px;color:#31574a}
+    @media(max-width:600px){.doc{margin:18px auto;padding-inline:14px}.doc-head{padding:20px}.doc-table{font-size:12px}}
+  </style>
+</head>
+<body>
+  <main class="doc">
+    <a class="doc-back" href="/#mcp">← VibeMetrics MCP</a>
+    <header class="doc-head">
+      <span class="eyebrow">VIBEMETRICS / MCP</span>
+      <h1>Подключение MCP-клиента</h1>
+      <p>Read-only stdio-мост для запросов к аналитике VibeMetrics. MCP-процесс работает рядом с порталом и обращается к API через loopback; отдельный публичный MCP-порт не нужен.</p>
+    </header>
+
+    <h2>Инструменты</h2>
+    <table class="doc-table">
+      <thead><tr><th>Инструмент</th><th>Что возвращает</th></tr></thead>
+      <tbody>
+        <tr><td><code>list_projects</code></td><td>Проекты и их стабильные ID.</td></tr>
+        <tr><td><code>get_snapshot</code></td><td>Итоги текущего и предыдущего периода, динамику по дням, атрибуцию, поведенческие фичи и до 100 последних событий.</td></tr>
+        <tr><td><code>export_csv</code></td><td>CSV для проектов, атрибуции, дневных событий или поведенческих фич.</td></tr>
+      </tbody>
+    </table>
+    <p>Фильтры: <code>project</code> — ID проекта; <code>days</code> — 7, 14 или 30; <code>model</code> — <code>first</code> или <code>last</code>. Для CSV дополнительно укажите <code>dataset</code>.</p>
+
+    <h2>Подключение</h2>
+    <p>Добавьте сервер в конфигурацию MCP-клиента, установленного на этом же сервере:</p>
+    <pre>{
+  "mcpServers": {
+    "vibemetrics": {
+      "command": "python3",
+      "args": ["/opt/vibemetrics/selfhost/mcp_server.py"],
+      "env": {
+        "VM_API_URL": "http://127.0.0.1:18080",
+        "VM_READ_TOKEN": "&lt;read-token-from-server-env&gt;"
+      }
+    }
+  }
+}</pre>
+    <p>Значение <code>VM_READ_TOKEN</code> хранится в <code>/opt/vibemetrics/.env</code>. Не вставляйте токен в публичные страницы, репозиторий или сообщения агенту, доступные другим участникам.</p>
+
+    <h2>Ограничения данных</h2>
+    <div class="note">Мост только читает данные. Он не создаёт события и не меняет проекты. CPA нельзя вычислить без данных о расходах; выручка и CRM-сделки доступны только в переданных источниках.</div>
+    <p>Поведенческие показатели описаны в определениях, возвращаемых API. Агенту следует указывать период и отличать события от сессий и уникальных посетителей. Пустой период означает отсутствие принятых событий, а не нулевую посещаемость сайта.</p>
+
+    <h2>Скачать skills</h2>
+    <div class="doc-links">
+      <div class="doc-link"><a href="/skills/vibemetrics-analytics/SKILL.md" download>VibeMetrics Analytics skill ↗</a><br><small>Обзор сети и сравнение периодов.</small></div>
+      <div class="doc-link"><a href="/skills/vibemetrics-attribution/SKILL.md" download>VibeMetrics Attribution skill ↗</a><br><small>First/last touch, конверсии и связанные CRM-сделки.</small></div>
+      <div class="doc-link"><a href="/skills/vibemetrics-behavior/SKILL.md" download>VibeMetrics Behavior skill ↗</a><br><small>Поведенческие фичи и последние события.</small></div>
+    </div>
+    <p>Официальная спецификация: <a href="https://modelcontextprotocol.io/" target="_blank" rel="noopener noreferrer">Model Context Protocol documentation ↗</a></p>
+  </main>
+</body>
+</html>

@@ -1,0 +1,59 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: vibemetrics
+      CLICKHOUSE_USER: vibemetrics
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?set CLICKHOUSE_PASSWORD}
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./selfhost/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          clickhouse-client --user "$$CLICKHOUSE_USER" --password "$$CLICKHOUSE_PASSWORD"
+          --database "$$CLICKHOUSE_DB" --query
+          "SELECT count() FROM system.tables WHERE database = currentDatabase() AND name IN ('events', 'crm_deals')"
+          | grep -qx 2
+      interval: 5s
+      timeout: 4s
+      retries: 35
+      start_period: 15s
+
+  portal:
+    build:
+      context: .
+      dockerfile: selfhost/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_DB: vibemetrics
+      CLICKHOUSE_USER: vibemetrics
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?set CLICKHOUSE_PASSWORD}
+      VM_ADMIN_USER: ${VM_ADMIN_USER:-admin}
+      VM_ADMIN_PASSWORD: ${VM_ADMIN_PASSWORD:?set VM_ADMIN_PASSWORD}
+      VM_PANEL_BOT_USER: ${VM_PANEL_BOT_USER:-}
+      VM_PANEL_BOT_PASSWORD: ${VM_PANEL_BOT_PASSWORD:-}
+      VM_INGEST_TOKEN: ${VM_INGEST_TOKEN:?set VM_INGEST_TOKEN}
+      VM_AGENT_KEY_SECRET: ${VM_AGENT_KEY_SECRET:?set VM_AGENT_KEY_SECRET}
+      VM_AGENT_IPS_PATH: /run/vibemetrics/agent-ips.json
+      VM_GEOIP_DB: /run/vibemetrics/geoip.mmdb
+      VM_PUBLIC_URL: ${VM_PUBLIC_URL:-https://vibemetrics.click}
+      VM_READ_TOKEN: ${VM_READ_TOKEN:?set VM_READ_TOKEN}
+      VM_BIND: 0.0.0.0
+      VM_WEB_ROOT: /opt/vibemetrics/web
+      VM_STATE_PATH: /var/lib/vibemetrics/registry.db
+    ports:
+      - "127.0.0.1:${VM_PORT:-8080}:8080"
+    volumes:
+      - project-data:/var/lib/vibemetrics
+      - /etc/vibemetrics:/run/vibemetrics:ro
+
+volumes:
+  clickhouse-data:
+  project-data:
