@@ -179,6 +179,62 @@ function pagesPanel() {
     table(['Page','Pageviews','Visitors','Avg time','Depth'],rows,'No page_view events yet.'));
 }
 
+function hourPanel() {
+  const data = state.snapshot.hourly || [];
+  if (!data.some(point => point.visitors)) return '';
+  const top = Math.max(1, ...data.map(point => point.visitors));
+  const cols = data.map(point => `<div class="hour-col"><i style="height:${Math.round(100 * point.visitors / top)}%" title="${point.hour}:00 UTC — ${num(point.visitors)}"></i><span>${point.hour}</span></div>`).join('');
+  return panel('Visitors by hour','Unique visitors by hour of day (UTC) within the selected period.',`<div class="hourly">${cols}</div>`);
+}
+
+function shareBars(rows, emptyText) {
+  const totalSum = rows.reduce((acc, r) => acc + Number(r.visitors || 0), 0) || 1;
+  return `<div class="channel-list">${rows.map(r => {
+    const pct = Math.round(100 * Number(r.visitors || 0) / totalSum);
+    return `<div class="channel"><strong>${escape(r.title)}</strong><b>${pct}%</b><div class="track"><i style="width:${pct}%"></i></div><small>${num(r.visitors)} · ${num(r.pageviews)} pageviews</small></div>`;
+  }).join('')}</div>`;
+}
+
+function trafficPanel() {
+  const rows = (state.snapshot.traffic || []).map(r => ({ ...r, title: trafficLabel(r.traffic_type) }));
+  if (!rows.length) return '';
+  return panel('Traffic type','Visitor classification by User-Agent heuristic — not absolute.',shareBars(rows));
+}
+
+function countriesPanel() {
+  const rows = (state.snapshot.countries || []).slice(0, 10).map(r => ({ ...r, title: countryLabel(r.country_code) }));
+  if (!rows.length) return '';
+  return panel('Countries','Visitors by country of their last page_view (GeoIP, approximate).',shareBars(rows));
+}
+
+function engagementPanel() {
+  const features = state.snapshot.features || [];
+  const value = name => {
+    const row = features.find(item => item.feature === name);
+    return row ? num(row.value) : '—';
+  };
+  if (!features.length) return '';
+  return panel('Engagement and returns','Session quality metrics within the selected period.',
+    table(['Metric','Value'],[
+      [cell('Engaged sessions (3+ events)'),cell(value('Engaged sessions'),true)],
+      [cell('Returning visitors (2+ sessions)'),cell(value('Returning visitors'),true)],
+      [cell('Sessions with a conversion'),cell(value('Sessions with a conversion'),true)],
+      [cell('Average session time'),cell(features.find(item => item.feature === 'Average session time, s') ? value('Average session time, s') + ' s' : '—',true)],
+      [cell('Average scroll depth'),cell(features.find(item => item.feature === 'Average scroll depth, %') ? value('Average scroll depth, %') + '%' : '—',true)],
+    ]));
+}
+
+function topEventsPanel() {
+  const rows = (state.snapshot.top_events || []).slice(0, 10);
+  if (!rows.length) return '';
+  return panel('Event types','Pageviews and explicit app events only.',
+    table(['Event','Count','Conversions'],rows.map(r => [cell(r.event_name),cell(num(r.events),true),cell(num(r.conversions),true)])));
+}
+
+function dashboardGrid() {
+  return `<div class="analytics-grid section-gap">${hourPanel()}${trafficPanel()}${countriesPanel()}${engagementPanel()}${topEventsPanel()}</div>`;
+}
+
 function overview() {
   const project = selection();
   return (project ? pageHead(escape(project.name), escape(domain(project.url)), link('projects','To the registry')) : state.mode === 'live' ? pageHead('Overview','Visitors, pageviews, and activity of the selected sites.') : hero())
@@ -186,6 +242,7 @@ function overview() {
     + `<div class="analytics-grid">${panel(state.mode === 'live' ? 'Pageviews per day' : 'Events per day',state.mode === 'live' ? 'Pageviews · previous period dashed' : 'All events of the selected projects',chart(),'<div class="control-group"><span class="key">Current</span><span class="key prev">Previous</span></div>')}
       ${panel('Conversion channels',state.model === 'first' ? 'First touch in the period' : 'Last touch before the goal',channels(),link('attribution','Breakdown'))}</div>`
     + (state.mode === 'live' ? pagesPanel() : '')
+    + dashboardGrid()
     + panel(project ? 'Project data' : 'OpenMVP Stat', project ? 'Summary of the selected project' : 'Network registry · projects, event flow, and CRM links', projectTable(state.snapshot.projects), `<a class="button" href="${projectHref('projects')}">All projects ↗</a>`)
     + modules();
 }
