@@ -35,6 +35,9 @@ VIEW_PAGES = {"overview", "projects", "events", "attribution", "features", "repo
 MAX_BODY = 512 * 1024
 COLLECT_RATE_LIMIT = 300
 COLLECT_RATE_WINDOW = 60.0
+PUBLIC_GET_API = {"/api/status", "/api/projects", "/api/snapshot"}
+PUBLIC_RATE_LIMIT = 30
+PUBLIC_RATE_WINDOW = 60.0
 _RATE_LOCK = threading.Lock()
 _RATE_BUCKETS = {}
 
@@ -611,6 +614,26 @@ class Handler(SimpleHTTPRequestHandler):
         header = self.headers.get("Authorization", "")
         return header.startswith("Bearer ") and secret_matches(header[7:], name)
 
+    def public_rate_allowed(self):
+        """Per-IP limiter for the unauthenticated read-only stats endpoints."""
+        try:
+            client_ip = self.request_ip()
+        except APIError:
+            client_ip = "unknown"
+        now = time.monotonic()
+        with _RATE_LOCK:
+            start, count = _RATE_BUCKETS.get(("public", client_ip), (now, 0))
+            if now - start >= PUBLIC_RATE_WINDOW:
+                start, count = now, 0
+            allowed = count < PUBLIC_RATE_LIMIT
+            if allowed:
+                _RATE_BUCKETS[("public", client_ip)] = (start, count + 1)
+            if len(_RATE_BUCKETS) > 10000:
+                for old_key, (old_start, _) in list(_RATE_BUCKETS.items()):
+                    if now - old_start >= PUBLIC_RATE_WINDOW:
+                        _RATE_BUCKETS.pop(old_key, None)
+        return allowed
+
     def agent_authorized(self):
         if self.bearer("VM_READ_TOKEN") or self.is_admin():
             return True
@@ -686,7 +709,10 @@ class Handler(SimpleHTTPRequestHandler):
                 if not self.bearer("VM_INGEST_TOKEN"):
                     return self.unauthorized()
                 return self.send_json(ingest(self.json_body(), path.rsplit("/", 1)[-1]), 202)
-            if not self.is_admin() and (write or not self.bearer("VM_READ_TOKEN")):
+            public_read = not write and path in PUBLIC_GET_API
+            if public_read and not self.public_rate_allowed():
+                return self.send_json({"error": "Слишком много запросов; повторите позже"}, 429)
+            if not public_read and not self.is_admin() and (write or not self.bearer("VM_READ_TOKEN")):
                 return self.unauthorized(challenge=not write)
             if write and path == "/api/projects":
                 data = self.json_body()
@@ -748,17 +774,18 @@ class Handler(SimpleHTTPRequestHandler):
         parts = urlsplit(self.path)
         if parts.path.startswith("/api/"):
             return self.handle_api(parts, write=False)
-        if not self.is_admin():
-            return self.unauthorized(challenge=True)
+        # SPA и статика публичны; все пишущие и админские маршруты остаются
+        # под Basic/Bearer-гейтами в handle_api.
         self.serve_spa_route(parts)
         if not self.allowed_static():
             return self.send_error(404)
         return super().do_GET()
 
     def do_HEAD(self):
-        if not self.is_admin():
-            return self.unauthorized(challenge=True)
-        self.serve_spa_route(urlsplit(self.path))
+        parts = urlsplit(self.path)
+        if parts.path.startswith("/api/"):
+            return self.handle_api(parts, write=False)
+        self.serve_spa_route(parts)
         if not self.allowed_static():
             return self.send_error(404)
         return super().do_HEAD()

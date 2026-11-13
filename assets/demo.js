@@ -1,6 +1,6 @@
 const END = Date.UTC(2026, 10, 9);
 const DAY = 86_400_000;
-const channels = ['Органический поиск', 'Платный поиск', 'Прямые заходы', 'Партнёрские ссылки', 'Email'];
+const channels = ['Organic search', 'Paid search', 'Direct', 'Partner referral', 'Email'];
 const sampleEvents = ['page_view', 'signup', 'checkout_opened', 'purchase'];
 const metrics = ['events', 'sessions', 'conversions', 'linked', 'revenue'];
 
@@ -49,10 +49,10 @@ export function demoSnapshot(projects, selection, days, model) {
   const active = dailyProjects.filter(project => project.events);
   const sessions = total(active, 'sessions');
   const features = sessions ? [
-    { feature: 'Вовлечённые сессии', value: Math.round(sessions * 0.173), definition: 'Сессии с тремя и более событиями' },
-    { feature: 'Сессии с конверсией', value: total(active, 'conversions'), definition: 'Сессии с целевым событием' },
-    { feature: 'Вернувшиеся посетители', value: Math.round(sessions * 0.119), definition: 'Посетители с двумя и более сессиями' },
-    { feature: 'Активные посетители', value: Math.round(sessions * 0.86), definition: 'Уникальные посетители за период' },
+    { feature: 'Engaged sessions', value: Math.round(sessions * 0.173), definition: 'Sessions with three or more events' },
+    { feature: 'Converting sessions', value: total(active, 'conversions'), definition: 'Sessions with a goal event' },
+    { feature: 'Returning visitors', value: Math.round(sessions * 0.119), definition: 'Visitors with two or more sessions' },
+    { feature: 'Active visitors', value: Math.round(sessions * 0.86), definition: 'Unique visitors for the period' },
   ] : [];
   const events = Array.from({ length: active.length ? 18 : 0 }, (_, i) => ({
     timestamp: new Date(END + 14 * 3600000 - i * 76000).toISOString(),
