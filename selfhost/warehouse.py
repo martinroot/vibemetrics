@@ -37,6 +37,7 @@ def ensure_event_schema():
         ("properties", "String", "'{}'"),
         ("traffic_type", "LowCardinality(String)", "'unknown'"),
         ("country_code", "FixedString(2)", "'ZZ'"),
+        ("device_type", "LowCardinality(String)", "'unknown'"),
     ):
         query(f"ALTER TABLE events ADD COLUMN IF NOT EXISTS {column} {kind} DEFAULT {default}")
 
@@ -350,6 +351,16 @@ def snapshot(projects, project, days, model, ids=None, offset=0):
         for row in pages
     ]
     top_event_metrics = [{"event_name": row["event_name"], "events": int(row["events_count"]), "conversions": int(row["conversions"])} for row in top_events]
+    device_rows = rows(f"""
+        SELECT device_type, uniqExact(if(empty(person_id), concat('session:', session_id), concat('person:', person_id))) AS visitors,
+            countIf(event_name = 'page_view') AS pageviews
+        FROM events FINAL WHERE {IDS_FILTER} AND {WINDOW} AND event_name = 'page_view'
+        GROUP BY device_type ORDER BY visitors DESC, device_type
+    """, params)
+    device_metrics = [
+        {"device_type": row["device_type"], "visitors": int(row["visitors"]), "pageviews": int(row["pageviews"])}
+        for row in device_rows
+    ]
     hourly_counts = {int(row["hour"]): int(row["visitors"]) for row in rows(f"""
         SELECT toHour(ts, 'UTC') AS hour,
             uniqExact(if(empty(person_id), concat('session:', session_id), concat('person:', person_id))) AS visitors
@@ -371,5 +382,6 @@ def snapshot(projects, project, days, model, ids=None, offset=0):
         "traffic": traffic_metrics,
         "countries": country_metrics,
         "top_events": top_event_metrics,
+        "devices": device_metrics,
         "events": recent,
     }

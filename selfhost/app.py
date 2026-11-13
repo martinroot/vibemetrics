@@ -407,7 +407,7 @@ def read_deal(data):
     }
 
 
-def ingest(payload, kind):
+def ingest(payload, kind, user_agent=""):
     batch = payload if isinstance(payload, list) else [payload]
     if not 1 <= len(batch) <= 500 or any(not isinstance(item, dict) for item in batch):
         raise APIError(400, "Передайте от 1 до 500 объектов")
@@ -415,6 +415,7 @@ def ingest(payload, kind):
         "events": (read_event, "events", "event_id"),
         "crm": (read_deal, "crm_deals", "deal_id"),
     }[kind]
+    device_type = classify_device(user_agent)
     rows = [parser(item) for item in batch]
     known = {project["id"] for project in projects()}
     if any(row["project_id"] not in known for row in rows):
@@ -431,6 +432,9 @@ def ingest(payload, kind):
         if not rows:
             return {"accepted": 0, "ignored_legacy": ignored_legacy}
     unique = {(row["project_id"], row[key]): row for row in rows}
+    for row in unique.values():
+        if table == "events" and not row.get("device_type"):
+            row["device_type"] = device_type
     warehouse.query(f"INSERT INTO {table} FORMAT JSONEachRow", data=unique.values())
     result = {"accepted": len(unique)}
     if kind == "events":
@@ -460,6 +464,22 @@ def classify_traffic(user_agent):
     if not value.strip():
         return "unknown"
     return "bot" if BOT_UA_RE.search(value) else "human"
+
+
+DEVICE_MOBILE_RE = re.compile(r"(?:iphone|ipod|android[^\n]*mobile|windows phone|opera mini)", re.I)
+DEVICE_TABLET_RE = re.compile(r"(?:ipad|tablet|kindle|playbook|silk|android(?!.*mobile))", re.I)
+DEVICE_TYPES = {"desktop", "mobile", "tablet", "unknown"}
+
+
+def classify_device(user_agent):
+    value = str(user_agent or "")[:512]
+    if not value.strip():
+        return "unknown"
+    if DEVICE_MOBILE_RE.search(value):
+        return "mobile"
+    if DEVICE_TABLET_RE.search(value):
+        return "tablet"
+    return "desktop"
 
 
 def ingest_from_site(payload, request_origin, client_ip="unknown", user_agent=""):
@@ -493,7 +513,8 @@ def ingest_from_site(payload, request_origin, client_ip="unknown", user_agent=""
         if isinstance(event_name, str) and event_name in LEGACY_NOISE_EVENTS:
             ignored_legacy += 1
             continue
-        rows.append({**event, "project_id": site_id, "traffic_type": traffic_type, "country_code": country_code})
+        rows.append({**event, "project_id": site_id, "traffic_type": traffic_type,
+                     "country_code": country_code, "device_type": classify_device(user_agent)})
     if not rows:
         return {"site_id": site_id, "accepted": 0, "ignored_legacy": ignored_legacy}
     return {"site_id": site_id, **ingest(rows, "events"), "ignored_legacy": ignored_legacy}
@@ -708,7 +729,7 @@ class Handler(SimpleHTTPRequestHandler):
             if write and path in {"/api/events", "/api/crm"}:
                 if not self.bearer("VM_INGEST_TOKEN"):
                     return self.unauthorized()
-                return self.send_json(ingest(self.json_body(), path.rsplit("/", 1)[-1]), 202)
+                return self.send_json(ingest(self.json_body(), path.rsplit("/", 1)[-1], self.headers.get("User-Agent", "")), 202)
             public_read = not write and path in PUBLIC_GET_API
             if public_read and not self.public_rate_allowed():
                 return self.send_json({"error": "Слишком много запросов; повторите позже"}, 429)

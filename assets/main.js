@@ -207,6 +207,16 @@ function countriesPanel() {
   return panel('Countries','Visitors by country of their last page_view (GeoIP, approximate).',shareBars(rows));
 }
 
+function devicesPanel() {
+  const rows = (state.snapshot.devices || []).map(r => ({ ...r, title: { desktop:'Desktop', mobile:'Mobile', tablet:'Tablet', unknown:'Unidentified' }[r.device_type] || r.device_type }));
+  if (!rows.length) return '';
+  return panel('Devices','Visitors by device type (User-Agent). Historical events before this field may show as Unidentified.',shareBars(rows));
+}
+
+function dashboardGrid() {
+  return `<div class="analytics-grid section-gap">${hourPanel()}${trafficPanel()}${devicesPanel()}${countriesPanel()}${engagementPanel()}${topEventsPanel()}</div>`;
+}
+
 function engagementPanel() {
   const features = state.snapshot.features || [];
   const value = name => {
@@ -229,10 +239,6 @@ function topEventsPanel() {
   if (!rows.length) return '';
   return panel('Event types','Pageviews and explicit app events only.',
     table(['Event','Count','Conversions'],rows.map(r => [cell(r.event_name),cell(num(r.events),true),cell(num(r.conversions),true)])));
-}
-
-function dashboardGrid() {
-  return `<div class="analytics-grid section-gap">${hourPanel()}${trafficPanel()}${countriesPanel()}${engagementPanel()}${topEventsPanel()}</div>`;
 }
 
 function overview() {
