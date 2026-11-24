@@ -66,6 +66,8 @@ Add the snippet shown after project registration to the site (before `</body>`):
 
 The tracker sends one `page_view` per page and updates that record with active time and scroll depth; extra events only via `data-vm-event` or `window.vibeTrack('purchase', { plan: 'standard' }, true)`. After user login, call `window.vibeIdentify('customer-315')` with a non-personal opaque ID. The collector accepts up to 100 events per batch and rate-limits to ~300 requests per minute per site/IP pair.
 
+Goal 1 / Goal 2 are built-in in the public dashboard: fire `window.vibeGoal('Goal1', {...})` or `Goal2` from a site and they appear in the KPI cards, project table and engagement panel without registry setup. Time on page now counts **active** time only: the tab must be visible, focused, and recently interacted with (30s idle cutoff, 60s per-interval cap), so open popunder tabs no longer inflate it. The tracker also records `clicks`, `keys`, `scrolls`, `interacted`, `interaction_ms` and `refocused`; engaged sessions require 10s of active time plus 2+ actions (or a goal).
+
 ## Custom goals and postbacks
 
 Configure goals per site (up to 50 names, `A-Za-z0-9_.:-`, max 80 chars) with the Basic-authenticated panel API. Any event whose name is in `goals` counts as a conversion, even without a JS flag:

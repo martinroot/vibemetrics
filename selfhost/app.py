@@ -405,10 +405,27 @@ def timestamp(data, key):
         raise APIError(400, f"Поле {key} требует ISO 8601 с часовым поясом") from None
 
 
+ACTIVITY_FIELDS = (
+    ("active_ms", 86_400_000), ("wall_ms", 86_400_000), ("interaction_ms", 86_400_000),
+    ("clicks", 10_000), ("keys", 10_000), ("scrolls", 10_000), ("moves", 10_000),
+)
+
+
 def read_event(data):
     flag = data.get("is_conversion", False)
     duration = data.get("duration_ms", 0)
     depth = data.get("scroll_depth", 0)
+    activity = {}
+    for key, limit in ACTIVITY_FIELDS:
+        value = data.get(key, 0)
+        if type(value) is not int or not 0 <= value <= limit:
+            raise APIError(400, f"Поле {key} должно быть целым числом от 0 до {limit}")
+        activity[key] = value
+    for key in ("interacted", "refocused"):
+        value = data.get(key, False)
+        if type(value) is not bool:
+            raise APIError(400, f"Поле {key} должно быть true или false")
+        activity[key] = int(value)
     traffic_type = data.get("traffic_type", "unknown")
     country_code = data.get("country_code", "ZZ")
     properties = data.get("properties", {})
@@ -443,6 +460,7 @@ def read_event(data):
         "is_conversion": int(flag),
         "duration_ms": duration,
         "scroll_depth": depth,
+        **activity,
         "traffic_type": traffic_type,
         "country_code": country_code,
         "referrer": required_text(data, "referrer", 512, False),

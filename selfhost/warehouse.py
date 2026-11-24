@@ -38,6 +38,15 @@ def ensure_event_schema():
         ("traffic_type", "LowCardinality(String)", "'unknown'"),
         ("country_code", "FixedString(2)", "'ZZ'"),
         ("device_type", "LowCardinality(String)", "'unknown'"),
+        ("active_ms", "UInt32", "0"),
+        ("wall_ms", "UInt32", "0"),
+        ("interaction_ms", "UInt32", "0"),
+        ("clicks", "UInt16", "0"),
+        ("keys", "UInt16", "0"),
+        ("scrolls", "UInt16", "0"),
+        ("moves", "UInt16", "0"),
+        ("interacted", "UInt8", "0"),
+        ("refocused", "UInt8", "0"),
     ):
         query(f"ALTER TABLE events ADD COLUMN IF NOT EXISTS {column} {kind} DEFAULT {default}")
 
@@ -110,17 +119,19 @@ PREVIOUS = "toDateTime64({previous:String}, 3, 'UTC')"
 END = "toDateTime64({end:String}, 3, 'UTC')"
 WINDOW = f"ts >= {START} AND ts < {END}"
 FEATURES = [
-    ("pageviews", "Просмотры страниц", "События page_view за период"),
-    ("visitors", "Уникальные посетители", "По анонимному visitor ID; без него — по сессии"),
-    ("human_visitors", "Люди · вероятно", "User-Agent без известных bot/crawler сигнатур"),
-    ("bot_visitors", "Боты", "User-Agent совпал с bot/crawler сигнатурой"),
-    ("unknown_visitors", "Тип не определён", "Нет User-Agent для классификации"),
-    ("avg_time_seconds", "Среднее время на странице, с", "Среднее время завершённых page_view"),
-    ("avg_session_seconds", "Среднее время на сайте, с", "Сумма времени на странице в завершённых сессиях"),
-    ("avg_scroll_depth", "Средняя глубина прокрутки, %", "Максимальная глубина страницы перед выходом"),
-    ("engaged", "Вовлечённые сессии", "Сессии с тремя и более событиями"),
-    ("converting", "Сессии с конверсией", "Сессии с целевым событием"),
-    ("repeat", "Вернувшиеся посетители", "Посетители с двумя и более сессиями"),
+    ("pageviews", "Pageviews", "page_view events in the period"),
+    ("visitors", "Unique visitors", "Anonymous visitor ID, or session ID when absent"),
+    ("human_visitors", "Humans · likely", "User-Agent without known bot/crawler signatures"),
+    ("bot_visitors", "Bots", "User-Agent matched a bot/crawler signature"),
+    ("unknown_visitors", "Unidentified", "No User-Agent available for classification"),
+    ("avg_time_seconds", "Active time on page, s", "Visible, focused and interacted time only"),
+    ("avg_session_seconds", "Active time on site, s", "Active time summed across closed sessions"),
+    ("avg_scroll_depth", "Average scroll depth, %", "Maximum scroll depth before exit"),
+    ("engaged", "Engaged sessions", "Active time >=10s with 2+ clicks/keys/scrolls, or a goal"),
+    ("converting", "Sessions with a conversion", "Sessions with a goal event"),
+    ("repeat", "Returning visitors", "Visitors with two or more sessions"),
+    ("goal1", "Goal 1", "JS event named Goal1 sent by the site"),
+    ("goal2", "Goal 2", "JS event named Goal2 sent by the site"),
 ]
 
 
@@ -163,8 +174,10 @@ def snapshot(projects, project, days, model, ids=None, offset=0):
         SELECT project_id, countIf(event_name NOT IN ('page_exit','scroll_depth')) AS events, uniqExactIf(session_id, event_name = 'page_view') AS sessions,
             countIf(event_name = 'page_view') AS pageviews,
             uniqExactIf(if(empty(person_id), concat('session:', session_id), concat('person:', person_id)), event_name = 'page_view') AS visitors,
-            avgIf(duration_ms, event_name = 'page_view' AND duration_ms > 0) AS avg_time_ms,
-            avgIf(scroll_depth, event_name = 'page_view' AND duration_ms > 0) AS avg_scroll_depth
+            avgIf(if(active_ms > 0, active_ms, duration_ms), event_name = 'page_view' AND duration_ms > 0) AS avg_time_ms,
+            avgIf(scroll_depth, event_name = 'page_view' AND duration_ms > 0) AS avg_scroll_depth,
+            countIf(event_name = 'Goal1') AS goal1,
+            countIf(event_name = 'Goal2') AS goal2
         FROM events FINAL WHERE {IDS_FILTER} AND {WINDOW} GROUP BY project_id
     """, params)}
     traffic_project_rows = rows(f"""
@@ -251,20 +264,24 @@ def snapshot(projects, project, days, model, ids=None, offset=0):
          "bot_pageviews": int(traffic_by_project.get(p["id"], {}).get("bot", {}).get("pageviews", 0)),
          "avg_time_seconds": int(round(float(totals.get(p["id"], {}).get("avg_time_ms", 0) or 0) / 1000)),
          "avg_scroll_depth": int(round(float(totals.get(p["id"], {}).get("avg_scroll_depth", 0) or 0))),
+         "goal1": int(totals.get(p["id"], {}).get("goal1", 0)),
+         "goal2": int(totals.get(p["id"], {}).get("goal2", 0)),
          **project_metrics.get(p["id"], {"conversions": 0, "linked": 0, "revenue": 0})}
         for p in projects if project or ids is None or p["id"] in id_set
     ]
 
     behavior = rows(f"""
         WITH per_session AS (
-            SELECT project_id, session_id, argMaxIf(person_id, tuple(ts, event_id), notEmpty(person_id)) AS known_person,
-                countIf(event_name NOT IN ('page_exit','scroll_depth')) AS volume, max(is_conversion) AS converted
+            SELECT project_id, session_id,
+                argMaxIf(person_id, tuple(ts, event_id), notEmpty(person_id)) AS known_person,
+                max(if(((active_ms >= 10000 AND (clicks + keys + scrolls) >= 2) OR is_conversion = 1), 1, 0)) AS engaged_flag,
+                max(is_conversion) AS converted
             FROM events FINAL WHERE {IDS_FILTER} AND {WINDOW} AND event_name NOT IN ('page_exit','scroll_depth')
             GROUP BY project_id, session_id
         ), per_visitor AS (
             SELECT project_id,
                 if(empty(known_person), concat('session:', session_id), concat('person:', known_person)) AS identity,
-                count() AS sessions, countIf(volume >= 3) AS engaged_sessions, sum(converted) AS converting_sessions
+                count() AS sessions, sum(engaged_flag) AS engaged_sessions, sum(converted) AS converting_sessions
             FROM per_session GROUP BY project_id, identity
         )
         SELECT sum(engaged_sessions) AS engaged, sum(converting_sessions) AS converting,
@@ -272,8 +289,10 @@ def snapshot(projects, project, days, model, ids=None, offset=0):
     """, params)[0]
     usage = rows(f"""
         SELECT countIf(event_name = 'page_view') AS pageviews,
-            avgIf(duration_ms, event_name = 'page_view' AND duration_ms > 0) AS avg_time_ms,
-            avgIf(scroll_depth, event_name = 'page_view' AND duration_ms > 0) AS avg_scroll_depth
+            avgIf(if(active_ms > 0, active_ms, duration_ms), event_name = 'page_view' AND duration_ms > 0) AS avg_time_ms,
+            avgIf(scroll_depth, event_name = 'page_view' AND duration_ms > 0) AS avg_scroll_depth,
+            countIf(event_name = 'Goal1') AS goal1,
+            countIf(event_name = 'Goal2') AS goal2
         FROM events FINAL WHERE {IDS_FILTER} AND {WINDOW}
     """, params)[0]
     countries = rows(f"""
@@ -292,7 +311,7 @@ def snapshot(projects, project, days, model, ids=None, offset=0):
     session_usage = rows(f"""
         SELECT avg(session_ms) AS avg_session_ms FROM (
             SELECT project_id, session_id,
-                sumIf(duration_ms, event_name = 'page_view') AS session_ms
+                sumIf(if(active_ms > 0, active_ms, duration_ms), event_name = 'page_view') AS session_ms
             FROM events FINAL WHERE {IDS_FILTER} AND {WINDOW}
             GROUP BY project_id, session_id
             HAVING session_ms > 0
@@ -302,7 +321,7 @@ def snapshot(projects, project, days, model, ids=None, offset=0):
         SELECT page, countIf(event_name = 'page_view') AS views,
             uniqExactIf(session_id, event_name = 'page_view') AS sessions,
             uniqExactIf(if(empty(person_id), concat('session:', session_id), concat('person:', person_id)), event_name = 'page_view') AS visitors,
-            avgIf(duration_ms, event_name = 'page_view' AND duration_ms > 0) AS avg_time_ms,
+            avgIf(if(active_ms > 0, active_ms, duration_ms), event_name = 'page_view' AND duration_ms > 0) AS avg_time_ms,
             avgIf(scroll_depth, event_name = 'page_view' AND duration_ms > 0) AS avg_scroll_depth
         FROM events FINAL
         WHERE {IDS_FILTER} AND {WINDOW} AND notEmpty(page)
@@ -342,6 +361,8 @@ def snapshot(projects, project, days, model, ids=None, offset=0):
         "engaged": int(behavior.get("engaged", 0) or 0),
         "converting": int(behavior.get("converting", 0) or 0),
         "repeat": int(behavior.get("repeat", 0) or 0),
+        "goal1": int(usage.get("goal1", 0) or 0),
+        "goal2": int(usage.get("goal2", 0) or 0),
     }
     page_metrics = [
         {"page": row["page"], "views": int(row["views"]), "sessions": int(row["sessions"]),
@@ -383,5 +404,6 @@ def snapshot(projects, project, days, model, ids=None, offset=0):
         "countries": country_metrics,
         "top_events": top_event_metrics,
         "devices": device_metrics,
+        "goals": {"goal1": feature_values["goal1"], "goal2": feature_values["goal2"]},
         "events": recent,
     }

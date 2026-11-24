@@ -16,6 +16,30 @@
   let activeUrl = location.href;
   let exitSent = false;
   let hiddenAt = 0;
+  // Active-time accounting: only visible, focused, recently-interacted time counts.
+  const IDLE_MS = 30000;
+  let activeMs = 0, wallMs = 0, tickAt = 0, lastActionAt = 0;
+  let clicks = 0, keys = 0, scrolls = 0, moves = 0, lastMoveAt = 0;
+  let interacted = false, interactionMs = 0, refocused = false;
+  // Visibility + recent interaction: headless/webview pages often report hasFocus() === false
+  // even when the tab is being read. A hidden tab never counts; an untouched popunder
+  // gets at most a 10s grace window instead of hours.
+  const clockActive = () => document.visibilityState === 'visible' && Date.now() - lastActionAt <= IDLE_MS;
+  const startClock = () => { if (!tickAt && clockActive()) tickAt = Date.now(); };
+  const stopClock = () => {
+    if (!tickAt) return;
+    activeMs += Math.min(60000, Math.max(0, Date.now() - tickAt));
+    tickAt = 0;
+  };
+  const markAction = kind => {
+    const now = Date.now();
+    if (!interacted) { interacted = true; interactionMs = Math.max(0, now - pageStartedAt); }
+    if (kind === 'click') clicks++;
+    else if (kind === 'key') keys++;
+    else if (kind === 'scroll') scrolls++;
+    lastActionAt = now;
+    startClock();
+  };
 
   const uid = () => {
     if (crypto.randomUUID) return crypto.randomUUID();
@@ -78,6 +102,15 @@
     is_conversion: options.conversion === true,
     duration_ms: Math.max(0, Math.min(86_400_000, Math.trunc(options.duration_ms || 0))),
     scroll_depth: Math.max(0, Math.min(100, Math.trunc(options.scroll_depth || 0))),
+    active_ms: Math.max(0, Math.min(86_400_000, Math.trunc(options.active_ms || 0))),
+    wall_ms: Math.max(0, Math.min(86_400_000, Math.trunc(options.wall_ms || 0))),
+    clicks: Math.max(0, Math.min(10000, Math.trunc(options.clicks || 0))),
+    keys: Math.max(0, Math.min(10000, Math.trunc(options.keys || 0))),
+    scrolls: Math.max(0, Math.min(10000, Math.trunc(options.scrolls || 0))),
+    moves: Math.max(0, Math.min(10000, Math.trunc(options.moves || 0))),
+    interacted: options.interacted === true,
+    interaction_ms: Math.max(0, Math.min(86_400_000, Math.trunc(options.interaction_ms || 0))),
+    refocused: options.refocused === true,
     properties: (() => {
       const props = { ...(options.properties || {}) };
       if (!props.clid) {
@@ -116,31 +149,56 @@
     maxDepth = scrollPercent();
     exitSent = false;
     hiddenAt = 0;
+    activeMs = 0; wallMs = Date.now(); tickAt = 0; lastActionAt = Date.now() - (IDLE_MS - 10000);
+    clicks = 0; keys = 0; scrolls = 0; moves = 0; lastMoveAt = 0;
+    interacted = false; interactionMs = 0; refocused = false;
     currentPageEvent = event('page_view', { properties: utmValues() });
     enqueue(currentPageEvent);
+    startClock();
   };
   const finishPage = () => {
     if (exitSent || !currentPageEvent) return;
     exitSent = true;
     const now = Date.now();
+    stopClock();
     maxDepth = Math.max(maxDepth, scrollPercent());
-    const duration = Math.max(0, Math.min(86_400_000, now - pageStartedAt - (hiddenAt ? now - hiddenAt : 0)));
-    currentPageEvent = { ...currentPageEvent, person_id: personId, duration_ms: duration, scroll_depth: maxDepth };
+    const wall = Math.max(0, Math.min(86_400_000, now - pageStartedAt));
+    const active = Math.min(activeMs, wall);
+    currentPageEvent = { ...currentPageEvent, person_id: personId,
+      duration_ms: active, active_ms: active, wall_ms: wall, scroll_depth: maxDepth,
+      clicks, keys, scrolls, moves, interacted, interaction_ms: interactionMs, refocused };
     enqueue(currentPageEvent);
     flush();
   };
 
   startPage();
-  addEventListener('scroll', () => { maxDepth = Math.max(maxDepth, scrollPercent()); }, { passive: true });
-  addEventListener('pagehide', finishPage);
+  addEventListener('scroll', () => { maxDepth = Math.max(maxDepth, scrollPercent()); markAction('scroll'); }, { passive: true });
+  addEventListener('pointerdown', () => markAction('click'), { passive: true });
+  addEventListener('keydown', () => markAction('key'));
+  addEventListener('pointermove', () => {
+    const now = Date.now();
+    if (now - lastMoveAt < 1000) return;
+    lastMoveAt = now;
+    if (!document.hasFocus || document.hasFocus()) moves++;
+    if (interacted) lastActionAt = now;
+    startClock();
+  }, { passive: true });
+  addEventListener('focus', () => { refocused = interacted; lastActionAt = Date.now(); startClock(); });
+  addEventListener('blur', stopClock);
+  addEventListener('pagehide', () => { stopClock(); finishPage(); });
   addEventListener('pageshow', event => {
     if (event.persisted) { activeUrl = location.href; startPage(); }
   });
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); flush(); }
-    else if (hiddenAt) { pageStartedAt += Date.now() - hiddenAt; hiddenAt = 0; }
+    if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); stopClock(); flush(); }
+    else if (hiddenAt) {
+      hiddenAt = 0;
+      refocused = interacted;
+      lastActionAt = Date.now();
+      startClock();
+    }
   });
-  setInterval(flush, 5000);
+  setInterval(() => { if (tickAt && !clockActive()) stopClock(); flush(); }, 5000);
 
   const onRoute = () => {
     if (location.href === activeUrl) return;

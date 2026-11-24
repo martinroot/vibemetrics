@@ -91,6 +91,8 @@ function kpis() {
     ['Visitors', num(total(list,'visitors')), 'Unique across the selected sites', 'users'],
     ['Humans · likely', num(total(list,'human_visitors')), 'By browser User-Agent', 'target'],
     ['Bots', num(total(list,'bot_visitors')), 'UA matched a known bot signature', 'layers'],
+    ['Goal 1', num(total(list,'goal1')), 'JS event Goal1 sent by sites', 'target'],
+    ['Goal 2', num(total(list,'goal2')), 'JS event Goal2 sent by sites', 'target'],
   ] : [
     ['Events', num(total(list,'events')), 'Actions across sites and apps', 'pulse'],
     ['Sessions', num(total(list,'sessions')), 'Sessions within projects', 'users'],
@@ -138,7 +140,7 @@ function projectTable(rows) {
   const live = state.mode === 'live';
   const ranked = [...rows].sort((a,b) => Number(live ? b.pageviews : b.events) - Number(live ? a.pageviews : a.events) || a.name.localeCompare(b.name));
   const perVisitor = row => Number(row.visitors) ? num(Math.round(Number(row.pageviews) / Number(row.visitors) * 10) / 10) : '—';
-  const headers = live ? ['Project','Stream',{t:'Pageviews',n:1},{t:'Visitors',n:1},{t:'Sessions',n:1},{t:'Pageviews / visitor',n:1},{t:'Time on page',n:1},{t:'Scroll depth',n:1},{t:'Humans',n:1},{t:'Bots',n:1},{t:'Unidentified',n:1},{t:'Conversions',n:1},{t:'CRM',n:1},'']
+  const headers = live ? ['Project','Stream',{t:'Pageviews',n:1},{t:'Visitors',n:1},{t:'Sessions',n:1},{t:'Pageviews / visitor',n:1},{t:'Active time',n:1},{t:'Scroll depth',n:1},{t:'Humans',n:1},{t:'Bots',n:1},{t:'Unidentified',n:1},{t:'Conversions',n:1},{t:'Goal 1',n:1},{t:'Goal 2',n:1},{t:'CRM',n:1},'']
     : ['Project','Stream',{t:'Events',n:1},{t:'Sessions',n:1},{t:'Conversions',n:1},{t:'CRM',n:1},''];
   return table(headers, ranked.map(row => {
     const color = /^#[0-9a-f]{6}$/i.test(row.color) ? row.color : '#3a7864';
@@ -151,7 +153,7 @@ function projectTable(rows) {
       ? [cell(num(row.pageviews),true),cell(num(row.visitors),true),cell(num(row.sessions),true),cell(perVisitor(row),true),
          cell(row.avg_time_seconds ? num(row.avg_time_seconds) + ' s' : '—',true),
          cell(row.avg_scroll_depth ? num(row.avg_scroll_depth) + '%' : '—',true),
-         cell(num(row.human_visitors),true),cell(num(row.bot_visitors),true),cell(num(row.unknown_visitors),true),cell(num(row.conversions),true),cell(row.conversions ? num(row.linked) + ' / ' + num(row.conversions) : '—',true)]
+         cell(num(row.human_visitors),true),cell(num(row.bot_visitors),true),cell(num(row.unknown_visitors),true),cell(num(row.conversions),true),cell(num(row.goal1),true),cell(num(row.goal2),true),cell(row.conversions ? num(row.linked) + ' / ' + num(row.conversions) : '—',true)]
       : [cell(num(row.events),true),cell(num(row.sessions),true),cell(num(row.conversions),true),cell(row.conversions ? num(row.linked) + ' / ' + num(row.conversions) : '—',true)];
     return [...common,...metrics,`<td class="row-actions"><a class="text-link" href="${projectHref('overview',row.id)}" aria-label="Open ${escape(row.name)}">Open ↗</a><a class="text-link" href="${projectHref('reports',row.id,'',{report:'countries'})}" title="Countries report">Countries ↗</a><a class="text-link" href="${projectHref('reports',row.id,'',{report:'events'})}" title="Event types report">Events ↗</a><button class="button" type="button" data-action="tags" data-id="${escape(row.id)}">Tags</button></td>`];
   }), 'No projects found.');
@@ -175,7 +177,7 @@ function pagesPanel() {
     cell(row.avg_time_seconds ? num(row.avg_time_seconds) + ' s' : '—'),
     cell(row.avg_scroll_depth ? num(row.avg_scroll_depth) + '%' : '—'),
   ]);
-  return panel('Pages','Pageviews, visitors, time on page, and scroll depth.',
+  return panel('Pages','Pageviews, visitors, active time, and scroll depth.',
     table(['Page','Pageviews','Visitors','Avg time','Depth'],rows,'No page_view events yet.'));
 }
 
@@ -226,10 +228,13 @@ function engagementPanel() {
   if (!features.length) return '';
   return panel('Engagement and returns','Session quality metrics within the selected period.',
     table(['Metric','Value'],[
-      [cell('Engaged sessions (3+ events)'),cell(value('Engaged sessions'),true)],
+      [cell('Engaged sessions (active time + JS activity)'),cell(value('Engaged sessions'),true)],
       [cell('Returning visitors (2+ sessions)'),cell(value('Returning visitors'),true)],
       [cell('Sessions with a conversion'),cell(value('Sessions with a conversion'),true)],
-      [cell('Average session time'),cell(features.find(item => item.feature === 'Average session time, s') ? value('Average session time, s') + ' s' : '—',true)],
+      [cell('Goal 1 (JS event)'),cell(value('Goal 1'),true)],
+      [cell('Goal 2 (JS event)'),cell(value('Goal 2'),true)],
+      [cell('Average active time on page'),cell(features.find(item => item.feature === 'Active time on page, s') ? value('Active time on page, s') + ' s' : '—',true)],
+      [cell('Average active time on site'),cell(features.find(item => item.feature === 'Active time on site, s') ? value('Active time on site, s') + ' s' : '—',true)],
       [cell('Average scroll depth'),cell(features.find(item => item.feature === 'Average scroll depth, %') ? value('Average scroll depth, %') + '%' : '—',true)],
     ]));
 }
