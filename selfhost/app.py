@@ -33,7 +33,7 @@ BOT_UA_RE = re.compile(r"(?:bot|crawler|spider|slurp|headless|selenium|phantom|p
 TRAFFIC_TYPES = {"human", "bot", "unknown"}
 LEGACY_NOISE_EVENTS = {"page_exit", "scroll_depth"}
 PROJECT_FIELDS = ("id", "name", "url", "type", "mark", "color", "tags")
-VIEW_PAGES = {"overview", "projects", "events", "attribution", "features", "reports", "sources", "exports", "mcp"}
+VIEW_PAGES = {"overview", "projects", "events", "attribution", "features", "reports", "sources", "exports", "mcp", "goals"}
 MAX_BODY = 512 * 1024
 COLLECT_RATE_LIMIT = 300
 COLLECT_RATE_WINDOW = 60.0
@@ -114,6 +114,12 @@ def update_goal_config(data):
         con.execute("UPDATE projects SET goals = ?, postback_url = ? WHERE id = ?",
                     (json.dumps(goals), postback, pid))
     return {"id": pid, "goals": goals, "postback_url": postback}
+
+
+def project_goal_configs():
+    with connection() as con:
+        rows = con.execute("SELECT id, goals, postback_url FROM projects ORDER BY name COLLATE NOCASE")
+        return [{"id": row["id"], "goals": site_goals(row), "postback_url": row["postback_url"] or ""} for row in rows]
 
 
 def send_postbacks(site_id, postback_url, conversions):
@@ -838,6 +844,8 @@ class Handler(SimpleHTTPRequestHandler):
                     raise APIError(400, "Требуется объект проекта")
                 result = new_project(data)
                 return self.send_json(result, 201 if result["created"] else 200)
+            if not write and path == "/api/projects/goals":
+                return self.send_json(project_goal_configs())
             if write and path == "/api/projects/goals":
                 data = self.json_body()
                 if not isinstance(data, dict):

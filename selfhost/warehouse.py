@@ -372,6 +372,17 @@ def snapshot(projects, project, days, model, ids=None, offset=0):
         for row in pages
     ]
     top_event_metrics = [{"event_name": row["event_name"], "events": int(row["events_count"]), "conversions": int(row["conversions"])} for row in top_events]
+    goal_rows = rows(f"""
+        SELECT event_name, count() AS events, uniqExact(session_id) AS sessions, max(ts) AS last_seen
+        FROM events FINAL WHERE {IDS_FILTER} AND {WINDOW}
+          AND (is_conversion = 1 OR event_name IN ('Goal1', 'Goal2'))
+        GROUP BY event_name ORDER BY events DESC, event_name LIMIT 100
+    """, params)
+    goal_events = [
+        {"event_name": row["event_name"], "events": int(row["events"]),
+         "sessions": int(row["sessions"]), "last_seen": str(row["last_seen"])}
+        for row in goal_rows
+    ]
     device_rows = rows(f"""
         SELECT device_type, uniqExact(if(empty(person_id), concat('session:', session_id), concat('person:', person_id))) AS visitors,
             countIf(event_name = 'page_view') AS pageviews
@@ -405,5 +416,6 @@ def snapshot(projects, project, days, model, ids=None, offset=0):
         "top_events": top_event_metrics,
         "devices": device_metrics,
         "goals": {"goal1": feature_values["goal1"], "goal2": feature_values["goal2"]},
+        "goal_events": goal_events,
         "events": recent,
     }

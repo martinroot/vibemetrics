@@ -3,8 +3,8 @@ import { demoSnapshot, total } from './demo.js';
 import { icon, mountIcons } from './icons.js';
 
 const $ = selector => document.querySelector(selector);
-const views = { overview:'Overview', projects:'OpenMVP Stat', events:'Events', attribution:'Attribution', features:'Behavior', reports:'Reports', sources:'Data sources', exports:'Exports', mcp:'MCP for agents' };
-const state = { mode:'demo', project:'', tag:'', days:1, offset:0, period:'today', model:'last', report:'summary', standardReport:'traffic', reportReady:false, search:'', snapshot:null, error:'', busy:false };
+const views = { overview:'Overview', projects:'OpenMVP Stat', events:'Events', attribution:'Attribution', features:'Behavior', reports:'Reports', sources:'Data sources', exports:'Exports', mcp:'MCP for agents', goals:'Goals' };
+const state = { mode:'demo', project:'', tag:'', days:1, offset:0, period:'today', model:'last', report:'summary', standardReport:'traffic', reportReady:false, goalConfig:null, goalConfigLoaded:false, search:'', snapshot:null, error:'', busy:false };
 const numbers = new Intl.NumberFormat('en-US');
 const compact = new Intl.NumberFormat('en-US', { notation:'compact', maximumFractionDigits:1 });
 const dateLabel = new Intl.DateTimeFormat('en-US', { day:'numeric', month:'short', timeZone:'UTC' });
@@ -57,6 +57,9 @@ const selection = () => projects.find(project => project.id === state.project);
 const button = (action, label, glyph, style = '') => `<button class="button ${style}" type="button" data-action="${action}">${glyph ? icon(glyph) : ''}${label}</button>`;
 const link = (page, label) => `<a class="text-link" href="${projectHref(page, state.project, state.tag)}">${label} <span aria-hidden="true">↗</span></a>`;
 const parseTags = value => [...new Set(String(value || '').split(',').map(tag => tag.trim()).filter(Boolean))].slice(0, 8).map(tag => tag.slice(0, 40));
+const GOAL_NAME_RE = /^[A-Za-z0-9_.:-]{1,80}$/;
+const parseGoals = value => [...new Set(String(value || '').split(',').map(name => name.trim()).filter(Boolean))].slice(0, 50).map(name => name.slice(0, 80));
+const isPanel = () => location.pathname.startsWith('/panel/');
 const table = (head, rows, empty = 'No data for this period yet.') => `<div class="table-wrap"><table><thead><tr>${head.map(title => {
   const label = typeof title === 'object' ? title.t : title;
   return `<th scope="col"${typeof title === 'object' && title.n ? ' class="number"' : ''}>${label}</th>`;
@@ -155,7 +158,7 @@ function projectTable(rows) {
          cell(row.avg_scroll_depth ? num(row.avg_scroll_depth) + '%' : '—',true),
          cell(num(row.human_visitors),true),cell(num(row.bot_visitors),true),cell(num(row.unknown_visitors),true),cell(num(row.conversions),true),cell(num(row.goal1),true),cell(num(row.goal2),true),cell(row.conversions ? num(row.linked) + ' / ' + num(row.conversions) : '—',true)]
       : [cell(num(row.events),true),cell(num(row.sessions),true),cell(num(row.conversions),true),cell(row.conversions ? num(row.linked) + ' / ' + num(row.conversions) : '—',true)];
-    return [...common,...metrics,`<td class="row-actions"><a class="text-link" href="${projectHref('overview',row.id)}" aria-label="Open ${escape(row.name)}">Open ↗</a><a class="text-link" href="${projectHref('reports',row.id,'',{report:'countries'})}" title="Countries report">Countries ↗</a><a class="text-link" href="${projectHref('reports',row.id,'',{report:'events'})}" title="Event types report">Events ↗</a><button class="button" type="button" data-action="tags" data-id="${escape(row.id)}">Tags</button></td>`];
+    return [...common,...metrics,`<td class="row-actions"><a class="text-link" href="${projectHref('overview',row.id)}" aria-label="Open ${escape(row.name)}">Open ↗</a><a class="text-link" href="${projectHref('reports',row.id,'',{report:'countries'})}" title="Countries report">Countries ↗</a><a class="text-link" href="${projectHref('reports',row.id,'',{report:'events'})}" title="Event types report">Events ↗</a><a class="text-link" href="${projectHref('goals',row.id)}" title="Goals">Goals ↗</a><button class="button" type="button" data-action="tags" data-id="${escape(row.id)}">Tags</button></td>`];
   }), 'No projects found.');
 }
 
@@ -249,7 +252,7 @@ function topEventsPanel() {
 function overview() {
   const project = selection();
   return (project ? pageHead(escape(project.name), escape(domain(project.url)), link('projects','To the registry')) : state.mode === 'live' ? pageHead('Overview','Visitors, pageviews, and activity of the selected sites.') : hero())
-    + controls() + dataError() + kpis()
+    + controls() + dataError() + (project ? reportTabs() : '') + kpis()
     + `<div class="analytics-grid">${panel(state.mode === 'live' ? 'Pageviews per day' : 'Events per day',state.mode === 'live' ? 'Pageviews · previous period dashed' : 'All events of the selected projects',chart(),'<div class="control-group"><span class="key">Current</span><span class="key prev">Previous</span></div>')}
       ${panel('Conversion channels',state.model === 'first' ? 'First touch in the period' : 'Last touch before the goal',channels(),link('attribution','Breakdown'))}</div>`
     + (state.mode === 'live' ? pagesPanel() : '')
@@ -366,6 +369,7 @@ const standardReports = [
   { id:'pages', title:'Pages', detail:'Popularity and engagement by page path.', render:s => table(['Page','Pageviews','Visitors','Avg time','Depth'],(s.pages||[]).map(r => [cell(r.page),cell(num(r.views),true),cell(num(r.visitors),true),cell(r.avg_time_seconds ? num(r.avg_time_seconds)+' s' : '—'),cell(r.avg_scroll_depth ? num(r.avg_scroll_depth)+'%' : '—')]),'No pages yet.') },
   { id:'sources', title:'Sources and CRM', detail:'Channels, goal actions, and linked deals.', render:s => table(['Channel','Conversions','With CRM','Revenue, USD'],(s.attribution||[]).map(r => [cell(channelName(r.channel)),cell(num(r.conversions),true),cell(num(r.linked),true),cell(num(r.revenue),true)]),'No conversions yet.') },
   { id:'events', title:'Event types', detail:'Only pageviews and events explicitly sent by the app.', render:s => table(['Event','Count','Conversions'],(s.top_events||[]).map(r => [cell(r.event_name),cell(num(r.events),true),cell(num(r.conversions),true)]),'No events yet.') },
+  { id:'goals', title:'Goals', detail:'Goal event names configured via JS; names match exactly and each goal becomes a conversion.', render:s => table(['Event name','Count','Sessions'],goalRows().map(r => [cell(r.event_name),cell(num(r.events),true),cell(num(r.sessions),true)]),'No goals yet.') },
 ];
 
 function reportsPage() {
@@ -434,9 +438,74 @@ function mcpPage() {
     + panel('Agent skills','Ready-made instructions for typical VibeMetrics queries.',`<div class="modules">${skillCards}</div>`);
 }
 
-const renderers = { overview, projects:projectPage, events:eventPage, attribution:attributionPage, features:featuresPage, reports:reportsPage, sources:sourcesPage, exports:exportsPage, mcp:mcpPage };
+function reportTabs() {
+  if (!state.project) return '';
+  const tabs = [
+    ['overview','Overview',''], ['events','Events',''], ['attribution','Attribution',''],
+    ['features','Behavior',''], ['goals','Goals',''], ['reports','Traffic','traffic'],
+    ['reports','Countries','countries'], ['reports','Pages','pages'],
+    ['reports','Sources','sources'], ['reports','Event types','events'],
+  ];
+  return `<div class="tag-bar section-gap" aria-label="Project reports">${tabs.map(([page,label,report]) => {
+    const active = route().page === page && (!report || state.standardReport === report);
+    return `<a class="chip${active ? ' active' : ''}" href="${projectHref(page, state.project, state.tag, report ? { report } : {})}">${label}</a>`;
+  }).join('')}</div>`;
+}
+
+function goalRows() {
+  const events = state.snapshot.goal_events || [];
+  const known = new Set(events.map(row => row.event_name));
+  const builtin = [
+    { event_name:'Goal1', events:state.snapshot.goals?.goal1 || 0, sessions:0, last_seen:'' },
+    { event_name:'Goal2', events:state.snapshot.goals?.goal2 || 0, sessions:0, last_seen:'' },
+  ].filter(row => !known.has(row.event_name));
+  return [...builtin, ...events];
+}
+
+function goalsPage() {
+  const rows = goalRows();
+  const tableRows = rows.map(row => [cell(row.event_name),cell(num(row.events),true),cell(num(row.sessions),true),cell(row.last_seen ? fmtDate(row.last_seen) : '—')]);
+  const stats = panel('Goal events','Names and counts of all goal events in the selected period.',
+    table(['Event name','Count','Sessions','Last seen'],tableRows,'No goals yet. Call window.vibeGoal(name) on the site.'));
+  const snippet = `<pre class="code-block">window.vibeGoal('Goal1', { place: 'pricing' });
+window.vibeGoal('Goal2', { place: 'thank-you' });
+window.vibeGoal('purchase', { plan: 'pro' });</pre>`;
+  const setup = isPanel()
+    ? panel('Goal setup and postbacks','Goal names are matched exactly; every matching event becomes a conversion. A goal with clid triggers a POST to the postback URL.',
+        `<form id="goals-form" class="detail">
+          <label>Project<select id="goals-project-select" aria-label="Project for goal setup">${projects.map(p => `<option value="${escape(p.id)}"${p.id === state.project ? ' selected' : ''}>${escape(p.name)}</option>`).join('')}</select></label>
+          <label>Goal event names <span>(comma-separated, up to 50)</span><input id="goals-input" maxlength="2000" placeholder="Goal1, Goal2, purchase"></label>
+          <label>Postback URL <span>(optional, http(s))</span><input id="goals-url" maxlength="500" placeholder="https://site.com/vm-postback"></label>
+          <p class="form-error" id="goals-status" role="alert"></p>
+          <div class="control-group section-gap">${button('goal-save','Save goals and postback','target','primary')}</div>
+        </form>`)
+    : panel('Goal setup','Sign in to the admin panel to edit goal names and postback URLs.','<div class="detail"><a class="button" href="/panel/goals">Open /panel/goals ↗</a></div>');
+  return pageHead('Goals','Goal event names, counts and postback configuration.')
+    + controls() + dataError()
+    + (state.project ? reportTabs() : '')
+    + stats + setup
+    + panel('JS API','Send goals from the site with the tracker snippet.',snippet);
+}
+
+const renderers = { overview, projects:projectPage, events:eventPage, attribution:attributionPage, features:featuresPage, reports:reportsPage, sources:sourcesPage, exports:exportsPage, mcp:mcpPage, goals:goalsPage };
+async function loadGoalConfig() {
+  state.goalConfigLoaded = true;
+  if (!isPanel() || state.mode !== 'live') return;
+  try {
+    state.goalConfig = await request('projects/goals');
+    fillGoalForm();
+  } catch (error) { state.goalConfigError = error.message; }
+}
+function fillGoalForm() {
+  const id = $('#goals-project-select')?.value || state.project;
+  const config = (state.goalConfig || []).find(item => item.id === id) || { goals:[], postback_url:'' };
+  if ($('#goals-input')) $('#goals-input').value = config.goals.join(', ');
+  if ($('#goals-url')) $('#goals-url').value = config.postback_url || '';
+  if ($('#goals-status')) $('#goals-status').textContent = '';
+}
 function render() {
   const page = route().page;
+  if (page === 'goals' && !state.goalConfigLoaded) loadGoalConfig();
   $('#crumb').textContent = views[page];
   $('#nav-count').textContent = projects.length;
   $('#engine-status').textContent = state.error ? 'Connection lost' : state.mode === 'live' ? 'Own pipeline connected' : 'Demo pipeline';
@@ -452,6 +521,7 @@ function render() {
   if ($('#model-select')) $('#model-select').value = state.model;
   if ($('#report-select')) $('#report-select').value = state.report;
   if ($('#standard-report-select')) $('#standard-report-select').value = state.standardReport;
+  if (page === 'goals' && isPanel() && state.goalConfig) fillGoalForm();
   mountIcons(document);
 }
 
@@ -463,7 +533,7 @@ async function request(path, options) {
   return result;
 }
 function emptySnapshot() {
-  return { projects:projects.filter(p => !state.project || p.id === state.project), daily:[], previous:[], events:[], attribution:[], features:[], pages:[], traffic:[], countries:[], top_events:[], hourly:[] };
+  return { projects:projects.filter(p => !state.project || p.id === state.project), daily:[], previous:[], events:[], attribution:[], features:[], pages:[], traffic:[], countries:[], top_events:[], hourly:[], goal_events:[], goals:{goal1:0,goal2:0} };
 }
 async function refresh() {
   const number = ++requestNumber;
@@ -568,6 +638,20 @@ viewNode.addEventListener('click', async event => {
   if (action === 'json') download('vibemetrics-' + suffix + '.json',JSON.stringify({ mode:state.mode, model:state.model, days:state.days, ...state.snapshot },null,2),'application/json');
   if (action === 'report-download') download('vibemetrics-report-' + suffix + '.txt',reportText(),'text/plain;charset=utf-8');
   if (action === 'report') { state.reportReady = true; render(); $('.code-block')?.scrollIntoView({ block:'nearest' }); }
+  if (action === 'goal-save') {
+    const id = $('#goals-project-select')?.value;
+    const goals = parseGoals($('#goals-input')?.value || '');
+    const postback_url = ($('#goals-url')?.value || '').trim();
+    const status = $('#goals-status');
+    if (!id || !goals.length) { status.textContent = 'Specify a project and at least one goal name'; return; }
+    try {
+      await request('projects/goals',{ method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ id, goals, postback_url }) });
+      state.goalConfig = (state.goalConfig || []).map(item => item.id === id ? { id, goals, postback_url } : item);
+      if (!state.goalConfig.some(item => item.id === id)) state.goalConfig.push({ id, goals, postback_url });
+      status.textContent = '';
+      notify('Goals saved');
+    } catch (error) { status.textContent = error.message; }
+  }
   if (action === 'copy') {
     const text = $('#agent-prompt').textContent;
     try { await navigator.clipboard.writeText(text); notify('Prompt copied'); }
@@ -583,6 +667,7 @@ viewNode.addEventListener('change',event => {
     [state.days, state.offset] = preset;
     refresh();
   }
+  if (id === 'goals-project-select') fillGoalForm();
   if (id === 'model-select') { state.model = value; refresh(); }
   if (id === 'report-select') { state.report = value; state.reportReady = false; render(); $('#report-select').focus(); }
   if (id === 'standard-report-select') { state.standardReport = value; navigate(projectHref('reports', state.project, state.tag, { report: value }), true); $('#standard-report-select').focus(); }
