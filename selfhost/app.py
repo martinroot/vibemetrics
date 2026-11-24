@@ -3,8 +3,10 @@
 import base64
 import binascii
 import hmac
+import hashlib
 import ipaddress
 import json
+import urllib.request
 import logging
 import os
 import re
@@ -73,10 +75,69 @@ def initialize():
             ("allowed_origins", "TEXT NOT NULL DEFAULT '[]'"),
             ("site_key", "TEXT NOT NULL DEFAULT ''"),
             ("tags", "TEXT NOT NULL DEFAULT '[]'"),
+            ("goals", "TEXT NOT NULL DEFAULT '[]'"),
+            ("postback_url", "TEXT NOT NULL DEFAULT ''"),
         ):
             if name not in columns:
                 con.execute(f"ALTER TABLE projects ADD COLUMN {name} {definition}")
         con.execute("CREATE UNIQUE INDEX IF NOT EXISTS projects_origin_unique ON projects(origin) WHERE origin <> ''")
+
+
+GOAL_NAME_RE = re.compile(r"[A-Za-z0-9_.:-]{1,80}\Z")
+
+
+def site_goals(row):
+    return [name for name in json.loads(row["goals"] or "[]") if isinstance(name, str) and GOAL_NAME_RE.fullmatch(name)]
+
+
+def update_goal_config(data):
+    pid = required_text(data, "id", 48)
+    goals = data.get("goals", [])
+    postback = data.get("postback_url", "")
+    if not isinstance(goals, list) or len(goals) > 50:
+        raise APIError(400, "goals должен быть списком до 50 имён")
+    for name in goals:
+        if not isinstance(name, str) or not GOAL_NAME_RE.fullmatch(name):
+            raise APIError(400, "Имя цели: латиница, цифры, _ . : - (до 80 символов)")
+    goals = list(dict.fromkeys(goals))
+    if not isinstance(postback, str) or len(postback) > 500:
+        raise APIError(400, "Некорректный postback_url")
+    postback = postback.strip()
+    if postback:
+        parsed = urlsplit(postback)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            raise APIError(400, "postback_url должен быть http(s)-URL")
+    with connection() as con:
+        row = con.execute("SELECT id FROM projects WHERE id = ?", (pid,)).fetchone()
+        if not row:
+            raise APIError(404, "Проект не найден")
+        con.execute("UPDATE projects SET goals = ?, postback_url = ? WHERE id = ?",
+                    (json.dumps(goals), postback, pid))
+    return {"id": pid, "goals": goals, "postback_url": postback}
+
+
+def send_postbacks(site_id, postback_url, conversions):
+    """Fire goal postbacks in the background; never block event ingestion."""
+    secret = os.getenv("VM_POSTBACK_SECRET", "")
+    def worker():
+        for event in conversions:
+            payload = json.dumps({
+                "project_id": site_id, "clid": event["clid"], "goal": event["event_name"],
+                "event_id": event["event_id"], "timestamp": event["ts"],
+                "session_id": event["session_id"], "person_id": event["person_id"],
+            }, ensure_ascii=False).encode()
+            headers = {"Content-Type": "application/json"}
+            if secret:
+                headers["X-VibeMetrics-Signature"] = hmac.new(
+                    secret.encode(), payload, hashlib.sha256).hexdigest()
+            try:
+                opener = urllib.request.build_opener(urllib.request.HTTPHandler)
+                req = urllib.request.Request(postback_url, data=payload, headers=headers, method="POST")
+                with opener.open(req, timeout=5) as response:
+                    logging.info("postback %s %s -> %s", site_id, event["event_name"], response.status)
+            except Exception as exc:
+                logging.warning("postback failed %s %s: %s", site_id, event["event_name"], exc)
+    threading.Thread(target=worker, daemon=True, name="vm-postback").start()
 
 
 def projects():
@@ -489,7 +550,7 @@ def ingest_from_site(payload, request_origin, client_ip="unknown", user_agent=""
     site_key = required_text(payload, "site_key", 128)
     origin = normalize_origin(request_origin)
     with connection() as con:
-        site = con.execute("SELECT site_key, allowed_origins FROM projects WHERE id = ?", (site_id,)).fetchone()
+        site = con.execute("SELECT site_key, allowed_origins, goals, postback_url FROM projects WHERE id = ?", (site_id,)).fetchone()
     if not site or not site["site_key"]:
         raise APIError(403, "Неверный site_id или ключ")
     allowed = json.loads(site["allowed_origins"] or "[]")
@@ -503,6 +564,8 @@ def ingest_from_site(payload, request_origin, client_ip="unknown", user_agent=""
     traffic_type = classify_traffic(user_agent)
     country_code = geoip.country_code(client_ip)
     rows = []
+    goals = set(site_goals(site))
+    postback_events = []
     ignored_legacy = 0
     for event in batch:
         if not isinstance(event, dict):
@@ -513,11 +576,27 @@ def ingest_from_site(payload, request_origin, client_ip="unknown", user_agent=""
         if isinstance(event_name, str) and event_name in LEGACY_NOISE_EVENTS:
             ignored_legacy += 1
             continue
-        rows.append({**event, "project_id": site_id, "traffic_type": traffic_type,
-                     "country_code": country_code, "device_type": classify_device(user_agent)})
+        row = {**event, "project_id": site_id, "traffic_type": traffic_type,
+               "country_code": country_code, "device_type": classify_device(user_agent)}
+        if row["event_name"] in goals:
+            row["is_conversion"] = True
+        properties = row.get("properties")
+        clid = str(row.get("clid", "") or "")
+        if isinstance(properties, dict) and not clid:
+            clid = str(properties.get("clid", "") or "")
+        clid = clid.strip()[:120]
+        if clid and row.get("is_conversion") is True and site["postback_url"]:
+            postback_events.append({"clid": clid, "event_name": row["event_name"],
+                "event_id": str(row.get("event_id", "")), "ts": str(row.get("timestamp", "")),
+                "session_id": str(row.get("session_id", "")), "person_id": str(row.get("person_id", "") or "")})
+        rows.append(row)
     if not rows:
         return {"site_id": site_id, "accepted": 0, "ignored_legacy": ignored_legacy}
-    return {"site_id": site_id, **ingest(rows, "events"), "ignored_legacy": ignored_legacy}
+    result = ingest(rows, "events")
+    if postback_events:
+        send_postbacks(site_id, site["postback_url"], postback_events)
+    return {"site_id": site_id, **result, "ignored_legacy": ignored_legacy,
+            "postbacks_queued": len(postback_events) if site["postback_url"] else 0}
 
 
 def secret_matches(received, name):
@@ -741,6 +820,11 @@ class Handler(SimpleHTTPRequestHandler):
                     raise APIError(400, "Требуется объект проекта")
                 result = new_project(data)
                 return self.send_json(result, 201 if result["created"] else 200)
+            if write and path == "/api/projects/goals":
+                data = self.json_body()
+                if not isinstance(data, dict):
+                    raise APIError(400, "Требуется объект с id, goals и postback_url")
+                return self.send_json(update_goal_config(data))
             if write and path == "/api/projects/tags":
                 data = self.json_body()
                 if not isinstance(data, dict):

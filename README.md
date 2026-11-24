@@ -66,6 +66,18 @@ Add the snippet shown after project registration to the site (before `</body>`):
 
 The tracker sends one `page_view` per page and updates that record with active time and scroll depth; extra events only via `data-vm-event` or `window.vibeTrack('purchase', { plan: 'standard' }, true)`. After user login, call `window.vibeIdentify('customer-315')` with a non-personal opaque ID. The collector accepts up to 100 events per batch and rate-limits to ~300 requests per minute per site/IP pair.
 
+## Custom goals and postbacks
+
+Configure goals per site (up to 50 names, `A-Za-z0-9_.:-`, max 80 chars) with the Basic-authenticated panel API. Any event whose name is in `goals` counts as a conversion, even without a JS flag:
+
+```bash
+curl -u 'admin:***' -X POST https://vibemetrics.click/panel/api/projects/goals \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"my-site","goals":["purchase","lead"],"postback_url":"https://my-site.com/vm-postback"}'
+```
+
+On the site, fire a goal with `window.vibeGoal('purchase', { plan: 'standard' })` (alias of `vibeTrack(name, props, true)`). When `?clid=...` is present in the URL, the tracker attaches `clid` to events; a goal conversion with a `clid` triggers an async `POST` to `postback_url` with `{project_id, clid, goal, event_id, timestamp, session_id, person_id}`. Set `VM_POSTBACK_SECRET` to add an HMAC-SHA256 `X-VibeMetrics-Signature` header. Delivery is at-least-once — dedupe on `event_id`. Disable with `{"id":"my-site","goals":[],"postback_url":""}`. See `/agent.md` for the full integration guide.
+
 ## MCP for agents
 
 ```json

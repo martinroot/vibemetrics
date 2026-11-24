@@ -78,7 +78,16 @@
     is_conversion: options.conversion === true,
     duration_ms: Math.max(0, Math.min(86_400_000, Math.trunc(options.duration_ms || 0))),
     scroll_depth: Math.max(0, Math.min(100, Math.trunc(options.scroll_depth || 0))),
-    properties: options.properties || {},
+    properties: (() => {
+      const props = { ...(options.properties || {}) };
+      if (!props.clid) {
+        try {
+          const value = new URLSearchParams(location.search).get('clid');
+          if (value) props.clid = safeText(value, 120);
+        } catch {}
+      }
+      return props;
+    })(),
   });
   const flush = () => {
     if (!queue.length) return;
@@ -172,6 +181,7 @@
     }
     track(safeName, { conversion: conversion === true, properties: safeProperties });
   };
+  window.vibeGoal = (name, properties = {}) => window.vibeTrack(name, properties, true);
   window.vibeIdentify = value => {
     if (typeof value !== 'string' || !value.trim() || value.length > 150) return;
     personId = safeText(value, 150);
@@ -179,6 +189,7 @@
   };
   window.vibeMetrics = {
     track: window.vibeTrack,
+    goal: window.vibeGoal,
     identify: window.vibeIdentify,
     get visitorId() { return visitorId; },
     get sessionId() { return sessionId; },
