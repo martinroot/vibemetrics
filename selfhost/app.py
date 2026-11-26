@@ -39,7 +39,8 @@ MAX_BODY = 512 * 1024
 COLLECT_RATE_LIMIT = 300
 COLLECT_RATE_WINDOW = 60.0
 PUBLIC_GET_API = {"/api/status", "/api/projects", "/api/snapshot", "/api/ai/insights"}
-AI_CACHE_TTL = 6 * 60 * 60
+AI_CACHE_TTL = int(os.getenv("VM_AI_CACHE_TTL", str(6 * 60 * 60)))
+AI_MAX_CALLS_PER_HOUR = int(os.getenv("VM_AI_MAX_CALLS_PER_HOUR", "20"))
 PUBLIC_RATE_LIMIT = 30
 PUBLIC_RATE_WINDOW = 60.0
 _RATE_LOCK = threading.Lock()
@@ -85,6 +86,9 @@ def initialize():
         con.execute("CREATE UNIQUE INDEX IF NOT EXISTS projects_origin_unique ON projects(origin) WHERE origin <> ''")
         con.execute("""CREATE TABLE IF NOT EXISTS ai_insights (
             cache_key TEXT PRIMARY KEY, created_at INTEGER NOT NULL, payload TEXT NOT NULL
+        )""")
+        con.execute("""CREATE TABLE IF NOT EXISTS ai_insights_calls (
+            hour_bucket TEXT PRIMARY KEY, calls INTEGER NOT NULL DEFAULT 0
         )""")
 
 
@@ -879,15 +883,37 @@ class Handler(SimpleHTTPRequestHandler):
                 snapshot = warehouse.snapshot(registry, project, days, "last")
                 features = ai_insights.build_features(snapshot, project, days)
                 key = ai_insights.cache_key(features)
-                if not force:
-                    with connection() as con:
-                        cached = con.execute("SELECT created_at, payload FROM ai_insights WHERE cache_key = ?", (key,)).fetchone()
+                cached_payload = None
+                with connection() as con:
+                    cached = con.execute(
+                        "SELECT created_at, payload FROM ai_insights WHERE cache_key = ?", (key,)
+                    ).fetchone()
                     if cached and time.time() - cached["created_at"] < AI_CACHE_TTL:
-                        return self.send_json(json.loads(cached["payload"]))
+                        cached_payload = json.loads(cached["payload"])
+                if cached_payload and not force:
+                    cached_payload["cached"] = True
+                    return self.send_json(cached_payload)
+
+                bucket = time.strftime("%Y%m%d%H", time.gmtime())
+                with connection() as con:
+                    used = con.execute(
+                        "SELECT calls FROM ai_insights_calls WHERE hour_bucket = ?", (bucket,)
+                    ).fetchone()
+                    if (used["calls"] if used else 0) >= AI_MAX_CALLS_PER_HOUR:
+                        return self.send_json(
+                            {"error": "AI-лимит на час исчерпан; кэш доступен без force"}, 429
+                        )
                 result = ai_insights.analyze(features)
                 with connection() as con:
-                    con.execute("INSERT OR REPLACE INTO ai_insights (cache_key, created_at, payload) VALUES (?, ?, ?)",
-                                (key, int(time.time()), json.dumps(result, ensure_ascii=False)))
+                    con.execute(
+                        "INSERT INTO ai_insights_calls (hour_bucket, calls) VALUES (?, 1) "
+                        "ON CONFLICT(hour_bucket) DO UPDATE SET calls = calls + 1", (bucket,)
+                    )
+                    con.execute(
+                        "INSERT OR REPLACE INTO ai_insights (cache_key, created_at, payload) VALUES (?, ?, ?)",
+                        (key, int(time.time()), json.dumps(result, ensure_ascii=False)),
+                    )
+                result["cached"] = False
                 return self.send_json(result)
             if not write and path == "/api/snapshot":
                 params = parse_qs(parts.query, max_num_fields=8)
