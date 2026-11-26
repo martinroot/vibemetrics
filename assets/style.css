@@ -36,11 +36,13 @@ svg{display:block}
 .workspace strong{font-size:11.5px}
 .workspace small{font-size:10.5px;color:var(--muted);margin-top:2px}
 .nav-label{color:#607184;margin:20px 9px 8px}
-.side-nav{display:grid;gap:3px}
-.side-nav a{display:flex;gap:9px;align-items:center;min-height:36px;padding:0 9px;color:#415468;border:1px solid transparent;border-radius:7px;font-size:12.5px;font-weight:600;white-space:nowrap}
-.side-nav a:hover{background:#f4f7f8}
-.side-nav a[aria-current]{color:#184f44;background:#eaf4ef;border-color:#dcece3;font-weight:750}
-.nav-count{font-size:10px;background:#eaf0f3;border-radius:5px;padding:2px 6px;margin-left:auto}
+.side-nav{display:grid;gap:6px}
+.side-nav a{display:flex;gap:10px;align-items:center;min-height:43px;padding:0 12px;color:#2f5145;border:1px solid #e2ede7;border-radius:11px;background:#f7faf8;font-size:13px;font-weight:650;white-space:nowrap;transition:background .15s,border-color .15s,transform .15s}
+.side-nav a:hover{background:#e6f6ec;border-color:#a9d8bd;transform:translateX(2px)}
+.side-nav a[aria-current]{color:#fff;background:#16a06f;border-color:#0c8a5d;font-weight:750;box-shadow:0 4px 12px #16a06f40}
+.side-nav a[aria-current] [data-icon]{color:#fff}
+.nav-count{font-size:10px;background:#dfeee5;color:#1b7455;border-radius:6px;padding:2px 7px;margin-left:auto}
+.side-nav a[aria-current] .nav-count{background:#ffffff33;color:#fff}
 .engine{margin:26px 2px 0;padding:11px;border:1px solid var(--border);border-radius:8px;background:#fff}
 .engine>div{display:flex;align-items:center;gap:7px;font-size:12px}
 .engine>div [data-icon]{color:#5b7564}
@@ -167,6 +169,11 @@ dialog input{display:block;margin-top:4px}
 .tag-bar .chip:hover{border-color:#9db8ac}
 .tag-bar .chip.active{background:#146653;border-color:#146653;color:#fff}
 .tag-bar .chip.active span{opacity:.85}
+.report-tabs{margin:4px 0 17px;gap:6px;border-bottom:1px solid #e6eeeb;padding-bottom:14px}
+.report-tabs .chip{justify-content:center;padding:9px 12px;border-radius:9px;border:1px solid #cfe4d8;background:#f2faf5;color:#276049;font-size:12px;line-height:1;box-shadow:0 2px 5px #0b4a3310}
+.report-tabs .chip:hover{background:#dcf4e6;border-color:#65bf95;color:#125b43}
+.report-tabs .chip.active{background:#16a06f;border-color:#0c8a5d;color:#fff;box-shadow:0 4px 12px #16a06f55}
+.project-chip{display:inline-flex;align-items:center;min-height:34px;padding:0 12px;border-radius:9px;background:#eaf6ef;border:1px solid #c9e6d5;color:#155f46;font-size:12px;font-weight:700}
 .row-tag{display:inline-block;margin:3px 4px 0 0;padding:1px 6px;border-radius:4px;background:var(--pale);color:#146653;font-size:10px;font-weight:700}
 .row-actions{white-space:nowrap}
 .row-actions .button{margin-left:8px;padding:3px 9px;font-size:11px}

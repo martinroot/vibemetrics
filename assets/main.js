@@ -75,7 +75,7 @@ const mode = () => `<span class="mode${state.error ? ' warn' : ''}"><i class="st
 
 function controls() {
   return `<div class="tools-row"><div class="control-group">${mode()}<span class="quiet">${dateRange()}</span></div><div class="control-group">
-    <select id="project-select" aria-label="Project"><option value="">All projects</option>${projects.map(p => `<option value="${escape(p.id)}"${p.id === state.project ? ' selected' : ''}>${escape(p.name)}</option>`).join('')}</select>
+    ${state.project ? `<span class="project-chip">${escape(projects.find(p => p.id === state.project)?.name || state.project)}</span><a class="text-link" href="${projectHref('projects','',state.tag)}">All projects ↗</a>` : `<select id="project-select" aria-label="Project"><option value="">All projects</option>${projects.map(p => `<option value="${escape(p.id)}"${p.id === state.project ? ' selected' : ''}>${escape(p.name)}</option>`).join('')}</select>`}
     <select id="period-select" aria-label="Period">${[['today','Today'],['yesterday','Yesterday'],[7,'7 days'],[14,'14 days'],[30,'30 days']].map(([value,label]) => `<option value="${value}"${String(value) === String(state.period) ? ' selected' : ''}>${label}</option>`).join('')}</select>
     ${button('csv','Download CSV','download')}
   </div></div>`;
@@ -309,7 +309,7 @@ function filteredProjects() {
 }
 
 function eventPage() {
-  return pageHead('Events','Browse the most recent events received across projects and sessions.') + controls() + dataError()
+  return pageHead('Events','Browse the most recent events received across projects and sessions.') + controls() + dataError() + (state.project ? reportTabs() : '')
     + panel('Event log','One logical page_view record per page; extra events only via explicit calls.',table(['Time UTC','Project','Event','Page','Session','Channel','Traffic type','Country','Duration','Depth'],state.snapshot.events.map(row => [
       cell(row.timestamp),cell(projects.find(p => p.id === row.project_id)?.name || row.project_id),
       `<td><code>${escape(row.event_name)}</code></td>`,cell(row.page || '—'),cell(row.session_id),cell(channelName(row.channel)),
@@ -321,13 +321,13 @@ function eventPage() {
 function attributionPage() {
   const choice = '<select id="model-select" aria-label="Attribution model"><option value="last">Last touch</option><option value="first">First touch</option></select>';
   return pageHead('Attribution','Compare channels by first and last touch. CRM deals are linked to a conversion by the shared client identifier.',choice)
-    + controls() + dataError() + panel('Channels and CRM','Touches are searched within the selected period up to the goal moment. Revenue is the sum of linked deals in USD.',table(['Channel','Conversions','With CRM','Revenue, USD'],state.snapshot.attribution.map(row => [
+    + controls() + dataError() + (state.project ? reportTabs() : '') + panel('Channels and CRM','Touches are searched within the selected period up to the goal moment. Revenue is the sum of linked deals in USD.',table(['Channel','Conversions','With CRM','Revenue, USD'],state.snapshot.attribution.map(row => [
       cell(channelName(row.channel)),cell(num(row.conversions),true),cell(num(row.linked),true),cell(num(row.revenue),true),
     ])));
 }
 
 function featuresPage() {
-  return pageHead('Behavior','Break the event stream down into session and visitor metrics.') + controls() + dataError()
+  return pageHead('Behavior','Break the event stream down into session and visitor metrics.') + controls() + dataError() + (state.project ? reportTabs() : '')
     + panel('Feature dictionary','A cut across the selected projects and period.',table(['Feature','Value','Definition'],state.snapshot.features.map(row => [cell(row.feature),cell(num(row.value),true),cell(row.definition)])));
 }
 
@@ -379,7 +379,7 @@ function reportsPage() {
   const options = '<select id="report-select" aria-label="Report template"><option value="summary">Network summary</option><option value="crm">Attribution and CRM</option><option value="behavior">Behavior</option></select>';
   const context = 'Project: ' + (selection()?.name || 'the whole network') + '. Period: ' + state.days + ' days. ';
   return pageHead('Reports','Standard reports of the selected project and an extensible catalog.')
-    + controls() + dataError() + standardPanel
+    + controls() + dataError() + (state.project ? reportTabs() : '') + standardPanel
     + panel('Prompt for the AI agent','A ready-made prompt for your MCP client, scoped to the current project and period.',`<div class="detail"><p id="agent-prompt">${escape(context + prompts[state.report])}</p><div class="control-group section-gap">${button('copy','Copy prompt','file')}${button('report','Build summary','terminal','primary')}</div></div>`,options)
     + (state.reportReady ? panel('Data summary','Result of the selected template.',`<pre class="code-block">${escape(reportText())}</pre>`,button('report-download','Download TXT','download')) : '');
 }
@@ -446,7 +446,7 @@ function reportTabs() {
     ['reports','Countries','countries'], ['reports','Pages','pages'],
     ['reports','Sources','sources'], ['reports','Event types','events'],
   ];
-  return `<div class="tag-bar section-gap" aria-label="Project reports">${tabs.map(([page,label,report]) => {
+  return `<div class="tag-bar report-tabs section-gap" aria-label="Project reports">${tabs.map(([page,label,report]) => {
     const active = route().page === page && (!report || state.standardReport === report);
     return `<a class="chip${active ? ' active' : ''}" href="${projectHref(page, state.project, state.tag, report ? { report } : {})}">${label}</a>`;
   }).join('')}</div>`;
