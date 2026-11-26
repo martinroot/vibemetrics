@@ -26,7 +26,12 @@ SYSTEM_PROMPT = (
     "actions (array of 2-5 objects: priority in {high,medium,low}, title, detail, metric_to_watch), "
     "confidence (number 0..1). "
     "Every observation and evidence must reference concrete numbers from the input. "
-    "If the data is too thin for a conclusion, say so explicitly instead of guessing."
+    "If the data is too thin for a conclusion, say so explicitly instead of guessing. "
+    "Each chain observation must name at least two metrics with their values from the input. "
+    "Actions must be specific to this project (source, page, device, day or goal) and name "
+    "the exact metric_to_watch. Never give generic advice such as 'improve UX'. "
+    "Bad action titles: 'Анализ контента', 'Улучшение призывов к действию', 'Анализ маркетинга'. "
+    "Good title example: 'Проверить источник Direct: 0 конверсий при 83 просмотрах 24 ноября'."
 )
 
 
