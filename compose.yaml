@@ -44,6 +44,8 @@ services:
       VM_AGENT_IPS_PATH: /run/vibemetrics/agent-ips.json
       VM_GEOIP_DB: /run/vibemetrics/geoip.mmdb
       VM_PUBLIC_URL: ${VM_PUBLIC_URL:-https://vibemetrics.click}
+      VM_AI_API_KEY: ${VM_AI_API_KEY:-}
+      VM_AI_MODEL: ${VM_AI_MODEL:-openai/gpt-4o-mini}
       VM_READ_TOKEN: ${VM_READ_TOKEN:?set VM_READ_TOKEN}
       VM_BIND: 0.0.0.0
       VM_WEB_ROOT: /opt/vibemetrics/web

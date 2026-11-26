@@ -163,6 +163,25 @@ dialog input{display:block;margin-top:4px}
 @media(max-width:520px){.mast{gap:8px}.top-nav a{font-size:10.5px}}
 .analytics-grid>.panel+.panel,.modules>.panel+.panel{margin-top:0}
 [hidden]{display:none!important}
+.ai-body{display:grid;gap:10px}
+.ai-loading{padding:16px;border:1px dashed #cfe4d8;border-radius:10px;background:#f7fbf8;color:#39705d;font-size:12px}
+.ai-summary{padding:12px 14px;border-radius:10px;background:#eef8f2;border:1px solid #d5ebdd;color:#205a46;font-size:13px;line-height:1.55}
+.ai-section-title{margin-top:8px;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#5b7568}
+.ai-step{padding:11px 13px;border:1px solid #e1ebe6;border-radius:10px;background:#fff}
+.ai-step-head{display:flex;gap:8px;align-items:center;font-weight:800;color:#1b5f47;margin-bottom:7px;font-size:12px}
+.ai-step-head span{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:6px;background:#16a06f;color:#fff;font-size:11px}
+.ai-line{display:flex;gap:9px;color:#41586d;font-size:12px;line-height:1.5;padding:2px 0}
+.ai-line b{flex:0 0 82px;color:#6b8174;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.ai-line.verdict{color:#185c45;font-weight:650}
+.ai-list{display:grid;gap:8px}
+.ai-item{padding:10px 12px;border:1px solid #e3ebe8;border-radius:9px;background:#fbfdfc;font-size:12px;line-height:1.5;color:#3b5263}
+.ai-item b{color:#233f50}
+.ai-badge{display:inline-block;margin-right:8px;padding:2px 7px;border-radius:6px;font-size:10px;font-weight:800;text-transform:uppercase;background:#e8f0ec;color:#4c6d5d}
+.ai-badge.high{background:#ffe8e3;color:#a33b26}
+.ai-badge.medium{background:#fff3d9;color:#8a5a11}
+.ai-badge.low{background:#e8f0ec;color:#4c6d5d}
+.ai-evidence{color:#6d7f89;font-size:11px;margin-top:3px}
+.ai-meta{color:#82939c;font-size:10px;margin-top:4px}
 .tag-bar{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 14px}
 .tag-bar .chip{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:16px;border:1px solid var(--border);background:#fff;color:#4b5f73;font-size:11px;font-weight:700;cursor:pointer}
 .tag-bar .chip span{font-weight:700;opacity:.65}

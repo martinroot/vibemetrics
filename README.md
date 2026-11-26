@@ -68,6 +68,16 @@ The tracker sends one `page_view` per page and updates that record with active t
 
 Goal 1 / Goal 2 are built-in in the public dashboard: fire `window.vibeGoal('Goal1', {...})` or `Goal2` from a site and they appear in the KPI cards, project table and engagement panel without registry setup. Time on page now counts **active** time only: the tab must be visible, focused, and recently interacted with (30s idle cutoff, 60s per-interval cap), so open popunder tabs no longer inflate it. The tracker also records `clicks`, `keys`, `scrolls`, `interacted`, `interaction_ms` and `refocused`; engaged sessions require 10s of active time plus 2+ actions (or a goal).
 
+## AI traffic review
+
+Each project overview includes an **AI marketer** panel: an explicit chain
+(observation → hypothesis → check → conclusion), anomalies and prioritized
+recommendations. `GET /api/ai/insights?project=ID&days=7` returns the same
+JSON; results are cached for 6 hours, and panel admins can force a refresh
+with `/panel/api/ai/insights?project=ID&days=7&force=1`. The model receives
+only metrics from the selected project snapshot — no external data. When no
+LLM key is configured, a deterministic rule-based review is returned instead.
+
 ## Custom goals and postbacks
 
 Configure goals per site (up to 50 names, `A-Za-z0-9_.:-`, max 80 chars) with the Basic-authenticated panel API. Any event whose name is in `goals` counts as a conversion, even without a JS flag:

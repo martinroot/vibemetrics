@@ -4,7 +4,7 @@ import { icon, mountIcons } from './icons.js';
 
 const $ = selector => document.querySelector(selector);
 const views = { overview:'Overview', projects:'OpenMVP Stat', events:'Events', attribution:'Attribution', features:'Behavior', reports:'Reports', sources:'Data sources', exports:'Exports', mcp:'MCP for agents', goals:'Goals' };
-const state = { mode:'demo', project:'', tag:'', days:1, offset:0, period:'today', model:'last', report:'summary', standardReport:'traffic', reportReady:false, goalConfig:null, goalConfigLoaded:false, search:'', snapshot:null, error:'', busy:false };
+const state = { mode:'demo', project:'', tag:'', days:1, offset:0, period:'today', model:'last', report:'summary', standardReport:'traffic', reportReady:false, goalConfig:null, goalConfigLoaded:false, ai:null, aiLoading:false, aiError:'', aiRequest:0, search:'', snapshot:null, error:'', busy:false };
 const numbers = new Intl.NumberFormat('en-US');
 const compact = new Intl.NumberFormat('en-US', { notation:'compact', maximumFractionDigits:1 });
 const dateLabel = new Intl.DateTimeFormat('en-US', { day:'numeric', month:'short', timeZone:'UTC' });
@@ -256,6 +256,7 @@ function overview() {
     + `<div class="analytics-grid">${panel(state.mode === 'live' ? 'Pageviews per day' : 'Events per day',state.mode === 'live' ? 'Pageviews · previous period dashed' : 'All events of the selected projects',chart(),'<div class="control-group"><span class="key">Current</span><span class="key prev">Previous</span></div>')}
       ${panel('Conversion channels',state.model === 'first' ? 'First touch in the period' : 'Last touch before the goal',channels(),link('attribution','Breakdown'))}</div>`
     + (state.mode === 'live' ? pagesPanel() : '')
+    + (state.mode === 'live' ? aiPanel() : '')
     + dashboardGrid()
     + panel(project ? 'Project data' : 'OpenMVP Stat', project ? 'Summary of the selected project' : 'Network registry · projects, event flow, and CRM links', projectTable(state.snapshot.projects), `<a class="button" href="${projectHref('projects')}">All projects ↗</a>`)
     + modules();
@@ -462,6 +463,54 @@ function goalRows() {
   return [...builtin, ...events];
 }
 
+function aiBody() {
+  if (state.aiLoading) return '<div class="ai-loading">AI marketer разбирает метрики проекта…</div>';
+  if (state.aiError) return '<p class="form-error">AI-разбор недоступен: ' + escape(state.aiError) + '</p>';
+  if (!state.ai) return '<div class="ai-loading">Нажмите «Переанализировать», чтобы получить разбор.</div>';
+  const data = state.ai;
+  const chain = (data.chain || []).map((item, index) => `<div class="ai-step">
+    <div class="ai-step-head"><span>${index + 1}</span>${escape(item.step || 'Шаг ' + (index + 1))}</div>
+    <div class="ai-line"><b>Наблюдение</b>${escape(item.observation)}</div>
+    <div class="ai-line"><b>Гипотеза</b>${escape(item.hypothesis)}</div>
+    <div class="ai-line"><b>Проверка</b>${escape(item.check)}</div>
+    <div class="ai-line verdict"><b>Вывод</b>${escape(item.verdict)}</div>
+  </div>`).join('');
+  const anomalies = (data.anomalies || []).length
+    ? '<div class="ai-list">' + data.anomalies.map(item => `<div class="ai-item"><span class="ai-badge ${escape(item.severity)}">${escape(item.severity)}</span><b>${escape(item.signal)}</b><div class="ai-evidence">${escape(item.evidence)}</div><div>${escape(item.interpretation)}</div></div>`).join('') + '</div>'
+    : '<p class="quiet">Аномалий по доступным метрикам не найдено.</p>';
+  const actions = (data.actions || []).map((item, index) => `<div class="ai-item"><span class="ai-badge ${escape(item.priority)}">${index + 1}. ${escape(item.priority)}</span><b>${escape(item.title)}</b><div>${escape(item.detail)}</div><div class="ai-evidence">Контроль: ${escape(item.metric_to_watch)}</div></div>`).join('');
+  return `<div class="ai-summary">${escape(data.summary)}</div>
+    <div class="ai-section-title">Цепочка анализа</div>${chain || '<p class="quiet">Цепочка не сформирована.</p>'}
+    <div class="ai-section-title">Аномалии</div>${anomalies}
+    <div class="ai-section-title">Рекомендации</div><div class="ai-list">${actions}</div>
+    <div class="ai-meta">${escape(data.source === 'llm' ? data.model : 'rule-based разбор')} · уверенность ${escape(String(data.confidence))} · ${escape(data.generated_at || '')}${data.note ? ' · ' + escape(data.note) : ''}</div>`;
+}
+
+function aiPanel() {
+  if (!state.project || state.mode !== 'live') return '';
+  return panel('AI marketer · разбор трафика',
+    'Цепочка: наблюдение → гипотеза → проверка → вывод. Только цифры выбранного проекта, без внешних данных.',
+    `<div class="ai-body" id="ai-body">${aiBody()}</div><div class="control-group section-gap">${button('ai-analyze','Переанализировать','pulse')}</div>`);
+}
+
+async function loadAiInsights(force = false) {
+  if (!state.project || state.mode !== 'live') return;
+  const number = ++state.aiRequest;
+  state.aiLoading = true;
+  state.aiError = '';
+  if ($('#ai-body')) $('#ai-body').innerHTML = aiBody();
+  try {
+    const data = await request('ai/insights?' + new URLSearchParams({ project: state.project, days: state.days, force: force ? '1' : '0' }));
+    if (number !== state.aiRequest) return;
+    state.ai = data;
+  } catch (error) {
+    if (number !== state.aiRequest) return;
+    state.aiError = error.message;
+  } finally {
+    if (number === state.aiRequest) { state.aiLoading = false; if ($('#ai-body')) $('#ai-body').innerHTML = aiBody(); }
+  }
+}
+
 function goalsPage() {
   const rows = goalRows();
   const tableRows = rows.map(row => [cell(row.event_name),cell(num(row.events),true),cell(num(row.sessions),true),cell(row.last_seen ? fmtDate(row.last_seen) : '—')]);
@@ -538,6 +587,7 @@ function emptySnapshot() {
 async function refresh() {
   const number = ++requestNumber;
   state.reportReady = false;
+  state.ai = null; state.aiError = ''; state.aiLoading = false;
   if (state.mode === 'demo') {
     state.snapshot = demoSnapshot(projects,state.project,state.days,state.model);
     render();
@@ -551,6 +601,7 @@ async function refresh() {
     const data = await request('snapshot?' + new URLSearchParams({ project:state.project, days:state.days, offset:state.offset, model:state.model, tag:state.tag }));
     if (number !== requestNumber) return;
     state.snapshot = data;
+    if (state.project && route().page === 'overview') loadAiInsights();
   } catch (error) {
     if (number !== requestNumber) return;
     state.error = error.message;
@@ -638,6 +689,7 @@ viewNode.addEventListener('click', async event => {
   if (action === 'json') download('vibemetrics-' + suffix + '.json',JSON.stringify({ mode:state.mode, model:state.model, days:state.days, ...state.snapshot },null,2),'application/json');
   if (action === 'report-download') download('vibemetrics-report-' + suffix + '.txt',reportText(),'text/plain;charset=utf-8');
   if (action === 'report') { state.reportReady = true; render(); $('.code-block')?.scrollIntoView({ block:'nearest' }); }
+  if (action === 'ai-analyze') { loadAiInsights(true); return; }
   if (action === 'goal-save') {
     const id = $('#goals-project-select')?.value;
     const goals = parseGoals($('#goals-input')?.value || '');

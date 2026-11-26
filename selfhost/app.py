@@ -23,6 +23,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 import warehouse
 import geoip
+import ai_insights
 
 ROOT = Path(__file__).resolve().parent
 DB_PATH = Path(os.getenv("VM_STATE_PATH", ROOT / "state" / "registry.db"))
@@ -37,7 +38,8 @@ VIEW_PAGES = {"overview", "projects", "events", "attribution", "features", "repo
 MAX_BODY = 512 * 1024
 COLLECT_RATE_LIMIT = 300
 COLLECT_RATE_WINDOW = 60.0
-PUBLIC_GET_API = {"/api/status", "/api/projects", "/api/snapshot"}
+PUBLIC_GET_API = {"/api/status", "/api/projects", "/api/snapshot", "/api/ai/insights"}
+AI_CACHE_TTL = 6 * 60 * 60
 PUBLIC_RATE_LIMIT = 30
 PUBLIC_RATE_WINDOW = 60.0
 _RATE_LOCK = threading.Lock()
@@ -81,6 +83,9 @@ def initialize():
             if name not in columns:
                 con.execute(f"ALTER TABLE projects ADD COLUMN {name} {definition}")
         con.execute("CREATE UNIQUE INDEX IF NOT EXISTS projects_origin_unique ON projects(origin) WHERE origin <> ''")
+        con.execute("""CREATE TABLE IF NOT EXISTS ai_insights (
+            cache_key TEXT PRIMARY KEY, created_at INTEGER NOT NULL, payload TEXT NOT NULL
+        )""")
 
 
 GOAL_NAME_RE = re.compile(r"[A-Za-z0-9_.:-]{1,80}\Z")
@@ -860,6 +865,30 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json({"mode": "live"})
             if not write and path == "/api/projects":
                 return self.send_json(projects())
+            if not write and path == "/api/ai/insights":
+                params = parse_qs(parts.query, max_num_fields=8)
+                project = params.get("project", [""])[0]
+                raw_days = params.get("days", ["7"])[0]
+                force = params.get("force", ["0"])[0] == "1" and self.is_admin()
+                registry = projects()
+                if not project or project not in {row["id"] for row in registry}:
+                    raise APIError(404, "Проект не найден")
+                if raw_days not in {str(n) for n in range(1, 31)}:
+                    raise APIError(400, "Выберите период от 1 до 30 дней")
+                days = int(raw_days)
+                snapshot = warehouse.snapshot(registry, project, days, "last")
+                features = ai_insights.build_features(snapshot, project, days)
+                key = ai_insights.cache_key(features)
+                if not force:
+                    with connection() as con:
+                        cached = con.execute("SELECT created_at, payload FROM ai_insights WHERE cache_key = ?", (key,)).fetchone()
+                    if cached and time.time() - cached["created_at"] < AI_CACHE_TTL:
+                        return self.send_json(json.loads(cached["payload"]))
+                result = ai_insights.analyze(features)
+                with connection() as con:
+                    con.execute("INSERT OR REPLACE INTO ai_insights (cache_key, created_at, payload) VALUES (?, ?, ?)",
+                                (key, int(time.time()), json.dumps(result, ensure_ascii=False)))
+                return self.send_json(result)
             if not write and path == "/api/snapshot":
                 params = parse_qs(parts.query, max_num_fields=8)
                 project = params.get("project", [""])[0]
