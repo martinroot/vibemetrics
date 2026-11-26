@@ -75,7 +75,7 @@ const mode = () => `<span class="mode${state.error ? ' warn' : ''}"><i class="st
 
 function controls() {
   return `<div class="tools-row"><div class="control-group">${mode()}<span class="quiet">${dateRange()}</span></div><div class="control-group">
-    ${state.project ? `<span class="project-chip">${escape(projects.find(p => p.id === state.project)?.name || state.project)}</span><a class="text-link" href="${projectHref('projects','',state.tag)}">All projects ↗</a>` : `<select id="project-select" aria-label="Project"><option value="">All projects</option>${projects.map(p => `<option value="${escape(p.id)}"${p.id === state.project ? ' selected' : ''}>${escape(p.name)}</option>`).join('')}</select>`}
+    <select id="project-select" class="project-select" aria-label="Project"><option value=""${state.project ? '' : ' selected'}>All projects</option>${projects.map(p => `<option value="${escape(p.id)}"${p.id === state.project ? ' selected' : ''}>${escape(p.name)}</option>`).join('')}</select>
     <select id="period-select" aria-label="Period">${[['today','Today'],['yesterday','Yesterday'],[7,'7 days'],[14,'14 days'],[30,'30 days']].map(([value,label]) => `<option value="${value}"${String(value) === String(state.period) ? ' selected' : ''}>${label}</option>`).join('')}</select>
     ${button('csv','Download CSV','download')}
   </div></div>`;
