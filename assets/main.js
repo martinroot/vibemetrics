@@ -256,7 +256,6 @@ function overview() {
     + `<div class="analytics-grid">${panel(state.mode === 'live' ? 'Pageviews per day' : 'Events per day',state.mode === 'live' ? 'Pageviews · previous period dashed' : 'All events of the selected projects',chart(),'<div class="control-group"><span class="key">Current</span><span class="key prev">Previous</span></div>')}
       ${panel('Conversion channels',state.model === 'first' ? 'First touch in the period' : 'Last touch before the goal',channels(),link('attribution','Breakdown'))}</div>`
     + (state.mode === 'live' ? pagesPanel() : '')
-    + (state.mode === 'live' ? aiPanel() : '')
     + dashboardGrid()
     + panel(project ? 'Project data' : 'OpenMVP Stat', project ? 'Summary of the selected project' : 'Network registry · projects, event flow, and CRM links', projectTable(state.snapshot.projects), `<a class="button" href="${projectHref('projects')}">All projects ↗</a>`)
     + modules();
@@ -490,7 +489,31 @@ function aiPanel() {
   if (!state.project || state.mode !== 'live') return '';
   return panel('AI marketer · разбор трафика',
     'Цепочка: наблюдение → гипотеза → проверка → вывод. Только цифры выбранного проекта, без внешних данных.',
-    `<div class="ai-body" id="ai-body">${aiBody()}</div><div class="control-group section-gap">${button('ai-analyze','Переанализировать','pulse')}</div>`);
+    `<div class="ai-body" id="ai-body">${aiBody()}</div><div class="control-group section-gap">${button('ai-analyze','Переанализировать','pulse')}${button('ai-export','Download .md','download')}</div>`);
+}
+
+function exportAiMarkdown() {
+  const data = state.ai;
+  if (!data) return;
+  const esc = value => String(value || '').replace(/\s+/g, ' ').trim();
+  const lines = [`# AI traffic review — ${esc(data.project)} (${data.days} days)`, '',
+    esc(data.summary), '', '## Chain'];
+  (data.chain || []).forEach((item, index) => lines.push(
+    `${index + 1}. ${esc(item.step)}`, `   - Observation: ${esc(item.observation)}`,
+    `   - Hypothesis: ${esc(item.hypothesis)}`, `   - Check: ${esc(item.check)}`,
+    `   - Verdict: ${esc(item.verdict)}`));
+  lines.push('', '## Anomalies');
+  (data.anomalies || []).forEach(item => lines.push(
+    `- [${esc(item.severity)}] ${esc(item.signal)} — ${esc(item.evidence)}. ${esc(item.interpretation)}`));
+  lines.push('', '## Actions');
+  (data.actions || []).forEach(item => lines.push(
+    `- [${esc(item.priority)}] ${esc(item.title)}: ${esc(item.detail)} (watch: ${esc(item.metric_to_watch)})`));
+  const blob = new Blob([lines.join('\n')], {type: 'text/markdown;charset=utf-8'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `ai-review-${data.project}-${data.days}d.md`;
+  link.click();
+  URL.revokeObjectURL(link.href);
 }
 
 async function loadAiInsights(force = false) {
@@ -566,7 +589,9 @@ function render() {
   });
   $('.mast-actions .bundle').hidden = state.mode === 'live';
   $('.brand').href = projectHref('overview','',state.tag);
-  viewNode.innerHTML = renderers[page]();
+  const pageHtml = renderers[page]();
+  const showAi = state.mode === 'live' && state.project && !['projects','exports','mcp'].includes(page);
+  viewNode.innerHTML = pageHtml + (showAi ? aiPanel() : '');
   if ($('#model-select')) $('#model-select').value = state.model;
   if ($('#report-select')) $('#report-select').value = state.report;
   if ($('#standard-report-select')) $('#standard-report-select').value = state.standardReport;
@@ -601,7 +626,7 @@ async function refresh() {
     const data = await request('snapshot?' + new URLSearchParams({ project:state.project, days:state.days, offset:state.offset, model:state.model, tag:state.tag }));
     if (number !== requestNumber) return;
     state.snapshot = data;
-    if (state.project && route().page === 'overview') loadAiInsights();
+    if (state.project && !['projects','exports','mcp'].includes(route().page)) loadAiInsights();
   } catch (error) {
     if (number !== requestNumber) return;
     state.error = error.message;
@@ -690,6 +715,7 @@ viewNode.addEventListener('click', async event => {
   if (action === 'report-download') download('vibemetrics-report-' + suffix + '.txt',reportText(),'text/plain;charset=utf-8');
   if (action === 'report') { state.reportReady = true; render(); $('.code-block')?.scrollIntoView({ block:'nearest' }); }
   if (action === 'ai-analyze') { loadAiInsights(true); return; }
+  if (action === 'ai-export') { exportAiMarkdown(); return; }
   if (action === 'goal-save') {
     const id = $('#goals-project-select')?.value;
     const goals = parseGoals($('#goals-input')?.value || '');
