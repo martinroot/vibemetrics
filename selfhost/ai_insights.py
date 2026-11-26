@@ -118,6 +118,77 @@ def _clean_text(value, limit=600):
     return re.sub(r"\s+", " ", str(value or "")).strip()[:limit]
 
 
+NUM_RE = re.compile(r"(?<![\w.])(\d+(?:[.,]\d+)?)\s*(?:%|с)?")
+_SKIP_FIELDS = {"step", "step_number"}
+
+
+def _allowed_numbers(features):
+    allowed = set()
+
+    def walk(value):
+        if isinstance(value, dict):
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+        elif isinstance(value, bool):
+            return
+        elif isinstance(value, (int, float)):
+            allowed.add(str(int(value)) if float(value).is_integer() else f"{float(value):.1f}")
+            allowed.add(f"{value:g}")
+        elif isinstance(value, str):
+            for match in NUM_RE.finditer(value):
+                token = match.group(1).replace(",", ".")
+                allowed.add(token)
+                if "." in token:
+                    allowed.add(token.rstrip("0").rstrip("."))
+
+    walk(features)
+    # Derived shares and ratios used by the deterministic review come from the
+    # same feature numbers, so they are legitimate as well.
+    totals = features.get("totals", {}) if isinstance(features, dict) else {}
+    pageviews = int(totals.get("pageviews", 0) or 0)
+    visitors = int(totals.get("visitors", 0) or 0)
+    for key in ("human_pageviews", "bot_pageviews"):
+        if pageviews:
+            allowed.add(f"{100.0 * int(totals.get(key, 0) or 0) / pageviews:.1f}")
+    for key in ("human_visitors", "bot_visitors"):
+        if visitors:
+            allowed.add(f"{100.0 * int(totals.get(key, 0) or 0) / visitors:.1f}")
+    if visitors:
+        ratio = f"{pageviews / visitors:.2f}"
+        allowed.add(ratio)
+        allowed.add(ratio.rstrip("0").rstrip(".") if "." in ratio else ratio)
+    return allowed
+
+
+def grounding_guard(features, review):
+    """Reject numeric claims absent from the snapshot-derived feature payload."""
+    allowed = _allowed_numbers(features)
+    unsupported = []
+    fields = [("summary", review.get("summary", ""))]
+    for name, items in (("chain", review.get("chain", [])),
+                        ("anomalies", review.get("anomalies", [])),
+                        ("actions", review.get("actions", []))):
+        for index, item in enumerate(items):
+            for key, text in item.items():
+                if key not in _SKIP_FIELDS:
+                    fields.append((f"{name}[{index}].{key}", text))
+    for field, text in fields:
+        for match in NUM_RE.finditer(str(text)):
+            token = match.group(1).replace(",", ".")
+            variants = {token, token.rstrip("0").rstrip(".") if "." in token else token}
+            if not variants & allowed:
+                unsupported.append(f"{field}:{token}")
+    guarded = dict(review)
+    guarded["grounding"] = {"ok": not unsupported, "unsupported": unsupported[:20]}
+    if unsupported:
+        guarded["source"] = "rules"
+        guarded["note"] = "LLM output failed the grounding guard"
+    return guarded
+
+
 def _validate(raw, features):
     if not isinstance(raw, dict):
         raise ValueError("model returned non-object JSON")
@@ -239,7 +310,7 @@ def _local_review(features, reason=""):
 def analyze(features):
     key = os.getenv("VM_AI_API_KEY") or os.getenv("OPENROUTER_API_KEY")
     if not key:
-        return _local_review(features, "LLM key is not configured")
+        return grounding_guard(features, _local_review(features, "LLM key is not configured"))
     model = os.getenv("VM_AI_MODEL", "openai/gpt-4o-mini")
     body = {
         "model": model,
@@ -261,9 +332,12 @@ def analyze(features):
         with urllib.request.urlopen(request, timeout=25) as response:
             data = json.loads(response.read().decode("utf-8"))
         content = data["choices"][0]["message"]["content"]
+        if not content:
+            raise ValueError("model returned empty content")
         if content.startswith("```"):
             content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip())
-        return _validate(json.loads(content), features)
+        validated = _validate(json.loads(content), features)
+        return grounding_guard(features, validated)
     except Exception as error:  # noqa: BLE001 - fall back to grounded rules
         logging.warning("AI review failed, using local rules: %s", type(error).__name__)
-        return _local_review(features, "LLM unavailable: " + type(error).__name__)
+        return grounding_guard(features, _local_review(features, "LLM unavailable: " + type(error).__name__))
