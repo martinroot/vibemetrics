@@ -72,6 +72,8 @@ curl -u 'admin:***' -X POST https://vibemetrics.click/panel/api/projects/goals \
 
 ## 5. Чек-лист перед запуском
 
+После накопления трафика открой проект на `https://vibemetrics.click/?project=ID` — панель **AI marketer** покажет аномалии, цепочку анализа и рекомендации; кнопка **Download .md** сохранит отчёт.
+
 1. `/api/collect` отвечает 202, события видны в снапшоте.
 2. `vibeGoal` вызывается только по клику/ отправке формы, а не при загрузке страницы.
 3. `clid` из URL виден в properties события.

@@ -77,6 +77,10 @@ JSON; results are cached for 6 hours, and panel admins can force a refresh
 with `/panel/api/ai/insights?project=ID&days=7&force=1`. The model receives
 only metrics from the selected project snapshot — no external data. When no
 LLM key is configured, a deterministic rule-based review is returned instead.
+Every number in the response is checked against the snapshot (`grounding`);
+a new LLM call is limited to `VM_AI_MAX_CALLS_PER_HOUR` (20 by default) and the
+response reports `cached: true|false`. The panel stays visible across all
+project report tabs and can export the review as Markdown.
 
 ## Custom goals and postbacks
 
